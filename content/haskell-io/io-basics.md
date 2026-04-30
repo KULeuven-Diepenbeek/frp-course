@@ -394,28 +394,28 @@ _De gegeven oplossingen zijn EEN mogelijke oplossing, soms zijn meerdere mogelij
 
 - Schrijf een `IO`-actie `begroet` die de gebruiker om zijn naam vraagt en daarna `"Hallo, <naam>!"` afdrukt.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 begroet :: IO ()
 begroet = do
   putStr "Naam: "
   naam <- getLine
   putStrLn ("Hallo, " ++ naam ++ "!")
-``` -->
+```
 
 - Schrijf een functie `drukLijstAf :: [String] -> IO ()` die elk element op een aparte regel afdrukt met `forM_`.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 import Control.Monad (forM_)
 
 drukLijstAf :: [String] -> IO ()
 drukLijstAf xs = forM_ xs putStrLn
-``` -->
+```
 
 - Schrijf een `IO`-actie die drie getallen van de gebruiker inleest (met `readLn :: IO Int`) en hun som afdrukt.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -432,7 +432,7 @@ main = do
 ```
 
 </p>
-</details> -->
+</details>
 
 ---
 
@@ -440,7 +440,7 @@ main = do
 
 - Schrijf een programma dat de gebruiker herhaaldelijk om een getal vraagt en het dubbele afdrukt, totdat de gebruiker `0` invoert.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -460,11 +460,11 @@ main = loop
 ```
 
 </p>
-</details> -->
+</details>
 
 - Gebruik `replicateM` om exact 4 namen van de gebruiker in te lezen en die daarna allemaal samen af te drukken.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -481,7 +481,7 @@ main = do
 ```
 
 </p>
-</details> -->
+</details>
 
 ---
 
@@ -489,17 +489,17 @@ main = do
 
 - Schrijf een programma dat de inhoud van een bestand `invoer.txt` inleest en het aantal regels afdrukt.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 main :: IO ()
 main = do
   inhoud <- readFile "invoer.txt"
   print (length (lines inhoud))
-``` -->
+```
 
 - Schrijf een programma dat de gebruiker om vijf regels tekst vraagt en die wegschrijft naar `uitvoer.txt`.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -516,11 +516,11 @@ main = do
 ```
 
 </p>
-</details> -->
+</details>
 
 - Schrijf een programma dat een bestand `log.txt` probeert te lezen. Als het bestand niet bestaat, druk dan `"Logbestand niet gevonden."` af. Als het wel bestaat, druk dan de laatste regel af.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -540,7 +540,7 @@ main = do
 ```
 
 </p>
-</details> -->
+</details>
 
 ---
 
@@ -548,7 +548,7 @@ main = do
 
 - Schrijf een pure functie `somLijst :: [Int] -> Int` die de som van een lijst berekent. Schrijf daarna een `IO`-actie die een getal `n` inleest, vervolgens `n` getallen inleest en de som via `somLijst` afdrukt.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -569,11 +569,11 @@ main = do
 ```
 
 </p>
-</details> -->
+</details>
 
 - Schrijf een pure functie `palindroom :: String -> Bool` die controleert of een string een palindroom is. Schrijf dan een `IO`-actie die de gebruiker een woord laat invoeren en het resultaat afdrukt.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 palindroom :: String -> Bool
 palindroom s = s == reverse s
@@ -585,4 +585,4 @@ main = do
   if palindroom woord
     then putStrLn "Is een palindroom."
     else putStrLn "Is geen palindroom."
-``` -->
+```
