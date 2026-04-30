@@ -227,12 +227,6 @@ module Main where
 
 import FRP.Yampa
 
-schalen :: Double -> SF Double Double
-schalen factor = arr (* factor)
-
-positieVanVersnelling :: SF Double Double
-positieVanVersnelling = integral >>> integral
-
 vallendebal :: Double -> SF Double Double
 vallendebal starthoogte = proc beginSnelheid -> do
   let versnelling = -9.81
