@@ -133,14 +133,14 @@ import FRP.Yampa
 
 ### Stap 2: Hoogte berekenen met `integral`
 
-De bal valt door een constante versnelling van -9.81 m/s². Door twee maal te integreren krijgen we de hoogte. We knippen de hoogte af op nul zodat de bal niet door de vloer zakt:
+De bal valt door een constante versnelling van -9.81 m/s². Door twee maal te integreren krijgen we de hoogte. De starthoogte wordt opgeteld bij het resultaat van de tweede integraal. We knippen de hoogte af op nul zodat de bal niet door de vloer zakt:
 
 ```haskell
-hoogteSF :: SF () Double
-hoogteSF = proc () -> do
+hoogteSF :: Double -> SF () Double
+hoogteSF beginHoogte = proc () -> do
   snelheid <- integral -< -9.81
-  hoogte   <- integral -< snelheid
-  returnA -< max 0.0 hoogte
+  delta    <- integral -< snelheid
+  returnA -< max 0.0 (beginHoogte + delta)
 ```
 
 ---
@@ -164,27 +164,28 @@ stuiteringsSF = arr (<= 0.0) >>> edge
 
 ```haskell
 tellerSF :: SF (Event ()) Int
-tellerSF = accumHold 0 (\n () -> n + 1)
+tellerSF = arr (fmap (const (+1))) >>> accumHold 0
 ```
 
 ---
 
 ### Stap 5: Alles samenvoegen met `proc` en testen met `embed`
 
-We verbinden alle stukken in één `proc`-blok en testen de simulatie met `embed`:
+We verbinden alle stukken in één `proc`-blok en testen de simulatie met `embed`. `stuiterendebal` accepteert een starthoogte:
 
 ```haskell
-stuiterendebal :: SF () (Double, Int)
-stuiterendebal = proc () -> do
-  hoogte     <- hoogteSF    -< ()
-  stuitering <- stuiteringsSF -< hoogte
-  aantal     <- tellerSF    -< stuitering
+stuiterendebal :: Double -> SF () (Double, Int)
+stuiterendebal beginHoogte = proc () -> do
+  hoogte     <- hoogteSF beginHoogte -< ()
+  stuitering <- stuiteringsSF        -< hoogte
+  aantal     <- tellerSF             -< stuitering
   returnA -< (hoogte, aantal)
 
 main :: IO ()
 main = do
-  let stappen  = replicate 30 (0.1, Nothing)
-      uitvoer  = embed stuiterendebal ((), stappen)
+  let beginHoogte = 10.0
+      stappen     = replicate 30 (0.1, Nothing)
+      uitvoer     = embed (stuiterendebal beginHoogte) ((), stappen)
   mapM_ print uitvoer
 ```
 
@@ -202,29 +203,30 @@ module Main where
 
 import FRP.Yampa
 
-hoogteSF :: SF () Double
-hoogteSF = proc () -> do
+hoogteSF :: Double -> SF () Double
+hoogteSF beginHoogte = proc () -> do
   snelheid <- integral -< -9.81
-  hoogte   <- integral -< snelheid
-  returnA -< max 0.0 hoogte
+  delta    <- integral -< snelheid
+  returnA -< max 0.0 (beginHoogte + delta)
 
 stuiteringsSF :: SF Double (Event ())
 stuiteringsSF = arr (<= 0.0) >>> edge
 
 tellerSF :: SF (Event ()) Int
-tellerSF = accumHold 0 (\n () -> n + 1)
+tellerSF = arr (fmap (const (+1))) >>> accumHold 0
 
-stuiterendebal :: SF () (Double, Int)
-stuiterendebal = proc () -> do
-  hoogte     <- hoogteSF      -< ()
-  stuitering <- stuiteringsSF -< hoogte
-  aantal     <- tellerSF      -< stuitering
+stuiterendebal :: Double -> SF () (Double, Int)
+stuiterendebal beginHoogte = proc () -> do
+  hoogte     <- hoogteSF beginHoogte -< ()
+  stuitering <- stuiteringsSF        -< hoogte
+  aantal     <- tellerSF             -< stuitering
   returnA -< (hoogte, aantal)
 
 main :: IO ()
 main = do
-  let stappen = replicate 30 (0.1, Nothing)
-      uitvoer = embed stuiterendebal ((), stappen)
+  let beginHoogte = 10.0
+      stappen     = replicate 30 (0.1, Nothing)
+      uitvoer     = embed (stuiterendebal beginHoogte) ((), stappen)
   mapM_ print uitvoer
 ```
 
