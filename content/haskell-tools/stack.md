@@ -80,8 +80,6 @@ Stackage biedt twee typen snapshots:
 - **LTS** (Long Term Support): stabiele snapshots die maandenlang onderhouden worden en alleen bugfixes ontvangen. De naam `lts-23.8` betekent LTS-serie 23, revisie 8. Elke LTS-serie is gekoppeld aan een specifieke GHC-versie.
 - **Nightly**: dagelijks bijgewerkte snapshots met de nieuwste packageversies. Minder stabiel, maar nuttig als je de allernieuwste versie van een package wil gebruiken.
 
-Voor cursuswerk gebruik je bij voorkeur een LTS-snapshot, omdat die stabieler zijn en minder kans geven op onverwachte wijzigingen.
-
 ### Extra dependencies toevoegen
 
 Niet elk package staat in het Stackage-snapshot. Packages die je nodig hebt maar die niet in het snapshot zitten, voeg je toe via `extra-deps`. Je specificeert dan de exacte versie:
@@ -182,8 +180,6 @@ Beide tools zijn volledig ondersteund en actief onderhouden. De keuze hangt grot
 | Flexibiliteit in versiekeuze | Beperkt tot snapshot | Volledige controle via solver |
 | Configuratiebestand | `stack.yaml` + `.cabal` | Enkel `.cabal` |
 | Aanbevolen voor | Reproduceerbare projecten, teams | Bibliotheekontwerp, Hackage-uploads |
-
-Voor de meeste projecten in deze cursus werken beide tools even goed. Als je al vertrouwd bent met Cabal, hoef je niet over te stappen. Stack biedt echter een laagdrempeliger opstartervaring doordat je je minder hoeft te bekommeren om versieconflicten.
 
 ---
 

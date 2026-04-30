@@ -242,3 +242,294 @@ executable frp-spel
                        Arrows
   ghc-options:        -Wall -O2
 ```
+
+## Demo greeter app
+
+In deze demo bouwen we stap voor stap een klein multi-package project. Het bestaat uit twee packages:
+
+- **`greeter`** — een library met herbruikbare functies, plus een eigen executable
+- **`greeter-web`** — een tweede executable die de `greeter`-library gebruikt
+
+Zo zie je in de praktijk hoe je code verdeelt tussen packages via een local `cabal.project`.
+
+---
+
+### Stap 1: Projectstructuur aanmaken
+
+Maak de volgende mappenstructuur aan:
+
+```
+greeter-demo/
+  cabal.project
+  greeter/
+    greeter.cabal
+    src/
+      Hello.hs
+      Greeter.hs
+    exe/
+      Main.hs
+    test/
+      Main.hs
+      HelloTest.hs
+  greeter-web/
+    greeter-web.cabal
+    src/
+      Main.hs
+```
+
+---
+
+### Stap 2: `cabal.project` — de overkoepelende configuratie
+
+Maak `greeter-demo/cabal.project` aan. Dit bestand vertelt Cabal dat beide packages samen één project vormen. Zo kan `greeter-web` de lokale `greeter`-library gebruiken zonder dat die op Hackage gepubliceerd is.
+
+```haskell
+packages:
+  greeter/
+  greeter-web/
+```
+
+Voer alle `cabal`-commando's uit vanuit deze `greeter-demo/`-root.
+
+---
+
+### Stap 3: `greeter/greeter.cabal`
+
+Dit `.cabal`-bestand declareert drie build-targets: een library, een executable en een test-suite. Let op de `common warnings`-stanza: daarmee definieer je gedeelde opties die je daarna met `import` hergebruikt in elk target.
+
+```haskell
+cabal-version: 3.0
+name:          greeter
+version:       0.1.0.0
+license:       Apache-2.0
+build-type:    Simple
+
+common warnings
+    ghc-options: -Wall
+
+library
+    import:           warnings
+    exposed-modules:  Greeter, Hello
+    build-depends:    base >=4.17 && <4.20
+                    , titlecase
+    hs-source-dirs:   src
+    default-language: Haskell2010
+
+executable greet
+    build-depends:    base >=4.17 && <4.20
+                    , greeter
+    hs-source-dirs:   exe
+    default-language: Haskell2010
+    main-is:          Main.hs
+
+test-suite hello-test
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    other-modules:    HelloTest
+    main-is:          Main.hs
+    build-depends:    base, hspec, greeter
+    default-language: Haskell2010
+```
+
+Merk op dat de library de externe package `titlecase` nodig heeft. Cabal haalt die automatisch op van Hackage bij `cabal build`.
+
+---
+
+### Stap 4: `greeter/src/Hello.hs`
+
+De eenvoudigste module: één functie die een naam omsluit in een begroeting.
+
+```haskell
+module Hello where
+
+hello :: String -> String
+hello s = "hello, " <> s <> "!"
+-- <> is de operator van de Semigroup-typeclass en is een generalisatie voor ++ voor lijsten.
+```
+
+---
+
+### Stap 5: `greeter/src/Greeter.hs`
+
+De `Greeter`-module importeert `Hello` en de externe `titlecase`-library om de begroeting in titelnotatie om te zetten. De functie `greet` is opgebouwd via functiecompositie met `.` - *(f . g) x = f (g x)*:
+
+```haskell
+module Greeter where
+
+import Data.Text.Titlecase
+import Hello
+
+greet :: String -> String
+greet = titlecase . hello
+```
+
+`titlecase . hello` betekent: pas eerst `hello` toe op de input, daarna `titlecase` op het resultaat. Dus `greet "alice"` geeft `"Hello, Alice!"`.
+
+---
+
+### Stap 6: `greeter/exe/Main.hs`
+
+De executable leest commandoregelargumenten uit met `getArgs` en begroet elk argument op een aparte regel:
+
+```haskell
+module Main where
+
+import System.Environment
+import Greeter
+
+main :: IO ()
+main = mapM_ (putStrLn . greet) =<< getArgs
+```
+
+`=<< getArgs` haalt de lijst van argumenten op uit IO en geeft die door aan `mapM_`. Voor elk argument wordt `greet` toegepast en het resultaat afgedrukt.
+
+Je kunt de executable starten met:
+
+```bash
+cabal run greet -- alice bob
+```
+
+{{% notice warning %}}
+De `--` is verplicht om Cabal te vertellen dat alles wat erna komt als argumenten voor het programma bedoeld is, en niet als opties voor `cabal run` zelf. Zonder `--` zou Cabal `alice` proberen te interpreteren als een eigen vlag.
+{{% /notice %}}
+
+Verwachte uitvoer:
+```
+Hello, Alice!
+Hello, Bob!
+```
+
+---
+
+### Stap 7: Tests schrijven met hspec
+
+#### `greeter/test/HelloTest.hs`
+
+De eigenlijke testspecificatie. We testen de `hello`-functie op correcte begroeting en op een lege string:
+
+```haskell
+module HelloTest where
+
+import Test.Hspec
+import Hello (hello)
+
+hello_test :: Spec
+hello_test = describe "hello" $ do
+  it "greets the name correctly" $ do
+    hello "World" `shouldBe` "hello, World!"
+    hello "Arne"  `shouldBe` "hello, Arne!"
+  it "handles empty string correctly" $ do
+    hello "" `shouldBe` "hello, !"
+```
+
+#### `greeter/test/Main.hs`
+
+Het ingangspunt van de test-suite roept de `hello_test`-spec aan via `hspec`:
+
+```haskell
+module Main where
+
+import Test.Hspec
+import HelloTest (hello_test)
+
+main :: IO ()
+main = hspec hello_test
+```
+
+Voer de tests uit met:
+
+```bash
+cabal test
+```
+
+---
+
+### Stap 8: `greeter-web/greeter-web.cabal`
+
+Een tweede package in hetzelfde project. Deze executable hangt af van de lokale `greeter`-library. Omdat `cabal.project` beide packages kent, hoeft `greeter` niet op Hackage te staan.
+
+```haskell
+cabal-version: 3.0
+name:          greeter-web
+version:       0.1.0.0
+license:       Apache-2.0
+build-type:    Simple
+
+common warnings
+    ghc-options: -Wall
+
+executable greeter-web
+    import:           warnings
+    main-is:          Main.hs
+    build-depends:    base >=4.17 && <4.20
+                    , greeter
+    hs-source-dirs:   src
+    default-language: Haskell2010
+```
+
+---
+
+### Stap 9: `greeter-web/src/Main.hs`
+
+Voorlopig een minimale main die de `Greeter`-module importeert. Je kunt hier later web-gerelateerde logica toevoegen:
+
+```haskell
+module Main where
+
+import Greeter
+
+main :: IO ()
+main = putStrLn (greet "web")
+```
+
+---
+
+### Stap 10: Alles bouwen en uitvoeren
+
+Vanuit de `greeter-demo/`-root:
+
+```bash
+# Package index verversen (eerste keer of na lange tijd)
+cabal update
+
+# Beide packages in één keer bouwen
+cabal build all
+
+# De greeter-executable starten
+cabal run greet -- alice bob
+
+# De greeter-web-executable starten
+cabal run greeter-web
+
+# Alle tests uitvoeren
+cabal test all
+```
+
+Cabal bouwt eerst de `greeter`-library (inclusief de `titlecase`-dependency van Hackage), daarna de executables en de test-suite van beide packages.
+
+---
+
+### Stap 11: De native executable rechtstreeks uitvoeren
+
+`cabal run` is handig tijdens ontwikkeling, maar het gecompileerde binaire bestand kan je ook rechtstreeks vanuit de terminal aanroepen. Cabal plaatst het in een diep geneste map onder `dist-newstyle/`. In plaats van dat pad op te zoeken, gebruik je het commando `cabal exec` of vraag je het pad op met `cabal exec -- which greet`. De eenvoudigste manier op elk platform is:
+
+```bash
+cabal exec greet -- alice bob
+```
+
+Wil je het binaire bestand kopiëren naar een vaste locatie zodat je het overal kunt aanroepen, dan gebruik je `cabal install`:
+
+```bash
+cabal install greet --installdir=./bin --overwrite-policy=always
+```
+
+Daarna staat het executable in `./bin/greet` (of `./bin/greet.exe` op Windows) en kun je het direct uitvoeren:
+
+```bash
+./bin/greet alice bob
+```
+
+{{% notice warning %}}
+Gebruik `cabal install` zonder `--installdir` niet zomaar in een projectdirectory: het installeert het binaire dan globaal in `~/.cabal/bin`, wat verwarring kan geven als je meerdere versies van hetzelfde project hebt.
+{{% /notice %}}
+
