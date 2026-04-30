@@ -49,6 +49,10 @@ mijn-project/
   CHANGELOG.md
 ```
 
+{{% notice warning %}}
+Opgelet, cabal projecten kunnen moeilijk overweg met directories waarvan het absolute pad spaties of speciale tekens bevatten. Je kan dus eventueel een folder rechtstreeks op je C-schijf aanmaken voor deze projecten.
+{{% /warning %}}
+
 ---
 
 ## Het `.cabal`-bestand
