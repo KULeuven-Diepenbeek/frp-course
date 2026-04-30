@@ -6,7 +6,7 @@ draft: false
 
 ## Het type `SF a b`
 
-De fundamentele building block in Yampa is de **signal function**: een waarde van het type `SF a b`. Conceptueel is een signal function een transformatie die een continue signaalstroom van type `a` omzet naar een continue signaalstroom van type `b`. Je kunt het zien als een 'wire' in een signaalgrafiek: aan het ene einde stroomt invoer naar binnen, aan het andere einde stroomt uitvoer naar buiten. De transformatie kan time-dependent zijn — een signal function heeft intern toegang tot de elapsed time en kan daarmee integreren, differentieren, vertraging realiseren, enzovoort.
+De fundamentele building block in Yampa is de **signal function**: een waarde van het type `SF a b`. Conceptueel is een signal function een transformatie die een continue signaalstroom van type `a` omzet naar een continue signaalstroom van type `b`. Je kunt het zien als een 'wire' in een signal graph: aan het ene einde stroomt invoer naar binnen, aan het andere einde stroomt uitvoer naar buiten. De transformatie kan time-dependent zijn — een signal function heeft intern toegang tot de elapsed time en kan daarmee integreren, differentiëren, vertraging realiseren, enzovoort.
 
 Het time-dependent karakter maakt signal functions fundamenteel anders dan gewone functies `a -> b`. Een gewone functie geeft altijd dezelfde uitvoer voor dezelfde invoer. Een signal function kan uitvoer produceren die afhangt van de **geschiedenis** van de invoer (via integratie) of van de **elapsed time** (via time sources). Tegelijkertijd zijn signal functions strikt **causaal**: een signal function mag niet vooruitkijken in de time — de uitvoer op time point *t* mag alleen afhangen van de invoer op time points vóór of op *t*.
 
@@ -71,7 +71,7 @@ dubbel = arr (* 2) &&& arr (* 3)
 
 ## Tijdsintegratie met `integral`
 
-Een van de meest essentiële signal functions in Yampa is `integral`, die de invoer integreert over de tijd met behulp van de Euler-methode. Als de invoer de snelheid van een object is (in eenheden per seconde), dan geeft `integral` de positie terug. Als de invoer een versnelling is, geeft twee maal `integral` (de positie als functie van versnelling):
+Een van de meest essentiële signal functions in Yampa is `integral`, die de invoer integreert over de tijd met behulp van de Euler-methode. Als de invoer de snelheid van een object is (in eenheden per seconde), dan geeft `integral` de positie terug. Als de invoer een versnelling is, geeft tweemaal `integral` de positie als functie van versnelling:
 
 ```haskell
 -- positie als functie van snelheid
@@ -131,7 +131,11 @@ resultaten = embed positie
   )
 ```
 
-De eerste component is de beginwaarde van de invoer. Elk element in de lijst is een paar `(DTime, Maybe a)`: het time difference ten opzichte van de vorige stap, en de optionele nieuwe invoerwaarde (`Nothing` houdt de vorige invoer). `embed` is bijzonder nuttig voor unit tests van signal functions zonder externe dependencies.
+De eerste component van `embed` is de beginwaarde van de invoer. Elk subsequent element in de lijst is een paar `(DTime, Maybe a)`: het time difference ten opzichte van de vorige stap, en de optionele nieuwe invoerwaarde (`Nothing` houdt de vorige invoer). `embed` is bijzonder nuttig voor unit tests van signal functions zonder externe dependencies.
+
+{{% notice info %}}
+In de klassieke FRP-theorie is een **Behaviour** formeel een **continue** functie `Time -> a` — op elk reëel tijdstip gedefinieerd, niet enkel op hele seconden. Het conceptuele verschil met een Event blijft: een Behaviour *heeft altijd* een waarde, een Event *verschijnt soms*, maar in de praktijk — ook in Yampa — worden signalen altijd verwerkt als **discrete tijdstappen** (`DTime` in `embed`/`reactimate`). Yampa's semantiek is geïnspireerd op het continue ideaal, maar de implementatie is onvermijdelijk discreet.
+{{% /notice %}}
 
 ---
 
@@ -179,18 +183,18 @@ positieVanVersnelling = integral >>> integral
 
 ### Stap 4: De vallendebal in `proc`-notatie
 
-We voegen zwaartekracht en integratie samen in een leesbaar `proc`-blok. Invoer is de beginsnelheid, uitvoer is de hoogte:
+We voegen zwaartekracht en integratie samen in een leesbaar `proc`-blok. De starthoogte is een gewone parameter; de beginsnelheid is de invoer van de SF:
 
 ```haskell
-vallendebal :: SF Double Double
-vallendebal = proc beginSnelheid -> do
+vallendebal :: Double -> SF Double Double
+vallendebal starthoogte = proc beginSnelheid -> do
   let versnelling = -9.81
   snelheid <- integral -< beginSnelheid + versnelling
   hoogte   <- integral -< snelheid
-  returnA -< max 0.0 hoogte
+  returnA -< max 0.0 (starthoogte + hoogte)
 ```
 
-`max 0.0` zorgt ervoor dat de bal niet door de vloer zakt.
+`starthoogte` is een gewone Haskell-waarde die bij de opbouw van de SF wordt ingebakken — geen signaal. `max 0.0` zorgt ervoor dat de bal niet door de vloer zakt.
 
 ---
 
@@ -203,11 +207,11 @@ main :: IO ()
 main = do
   let dt      = 0.1
       stappen = replicate 20 (dt, Nothing)
-      hoogtes = embed vallendebal (0.0, stappen)
+      hoogtes = embed (vallendebal 10.0) (0.0, stappen)
   mapM_ print hoogtes
 ```
 
-De bal start met beginsnelheid 0.0 en valt 2 seconden. De uitvoer is een lijst van hoogtes die richting nul dalen.
+De bal start op 10 meter hoogte met beginsnelheid 0.0 en valt 2 seconden. De uitvoer is een lijst van hoogtes die richting nul dalen.
 
 ---
 
@@ -223,18 +227,24 @@ module Main where
 
 import FRP.Yampa
 
-vallendebal :: SF Double Double
-vallendebal = proc beginSnelheid -> do
+schalen :: Double -> SF Double Double
+schalen factor = arr (* factor)
+
+positieVanVersnelling :: SF Double Double
+positieVanVersnelling = integral >>> integral
+
+vallendebal :: Double -> SF Double Double
+vallendebal starthoogte = proc beginSnelheid -> do
   let versnelling = -9.81
   snelheid <- integral -< beginSnelheid + versnelling
   hoogte   <- integral -< snelheid
-  returnA -< max 0.0 hoogte
+  returnA -< max 0.0 (starthoogte + hoogte)
 
 main :: IO ()
 main = do
   let dt      = 0.1
       stappen = replicate 20 (dt, Nothing)
-      hoogtes = embed vallendebal (0.0, stappen)
+      hoogtes = embed (vallendebal 10.0) (0.0, stappen)
   mapM_ print hoogtes
 ```
 

@@ -3,7 +3,7 @@ title: "Yampa"
 weight: 4
 chapter: true
 pre: "<b>4. </b>"
-draft: true
+draft: false
 ---
 
 ### Yampa

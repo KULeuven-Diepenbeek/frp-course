@@ -2,7 +2,7 @@
 title: "Extra"
 weight: 99
 chapter: true
-pre: "<b>5. </b>"
+pre: ""
 draft: false
 ---
 
