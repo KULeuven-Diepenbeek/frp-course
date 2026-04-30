@@ -6,7 +6,7 @@ draft: false
 
 ## Concurrentie in Haskell
 
-De Haskell-runtime (GHC) ondersteunt **lichtgewicht threads**: groene threads die door de runtime zelf beheerd worden en op een pool van echte OS-threads draaien. Je kunt tienduizenden Haskell-threads aanmaken zonder noemenswaardige overhead, want ze worden efficiënt ingepland door de runtime-scheduler. Het aantal OS-threads dat de runtime gebruikt, stel je in via de runtime-vlag `+RTS -N` (of `-N4` voor vier cores).
+De Haskell-runtime (GHC) ondersteunt **lightweight threads**: green threads die door de runtime zelf beheerd worden en op een pool van echte OS-threads draaien. Je kunt tienduizenden Haskell-threads aanmaken zonder noemenswaardige overhead, want ze worden efficiënt ingepland door de runtime-scheduler. Het aantal OS-threads dat de runtime gebruikt, stel je in via de runtime-vlag `+RTS -N` (of `-N4` voor vier cores).
 
 Een nieuwe thread aanmaken doe je met `forkIO`. Deze functie neemt een `IO ()`-actie en voert die uit in een aparte thread, terwijl de aanroepende thread onmiddellijk verder gaat. De return-waarde is een `ThreadId` waarmee je de thread later kunt inspecteren of stoppen:
 
@@ -24,15 +24,19 @@ main = do
 
 De functie `threadDelay` pauzeert de huidige thread voor het opgegeven aantal **microseconden**. Dit is de standaard manier om een loop op een vaste framerate te laten draaien, of om te wachten op externe events.
 
+{{% notice warning %}}
+De precisie van `threadDelay` is **microseconden**, maar de effectieve minimumvertraging is in de praktijk veel groter. Het OS-schedulinginterval bedraagt typisch **~15–20 ms** op Windows en **~1–4 ms** op Linux/macOS. Een aanroep `threadDelay 1` (1 µs) wacht dus in werkelijkheid minstens ~15 ms, omdat het OS pas na die cyclus opnieuw checkt. Gebruik `threadDelay` niet voor tijdkritische toepassingen die sub-milliseconde precisie vereisen.
+{{% /notice %}}
+
 ---
 
 ## Channels en queues
 
-Wanneer threads informatie met elkaar moeten uitwisselen, heb je een communication channel nodig. Eenvoudige gedeelde `IORef`s zijn daarvoor niet geschikt omdat ze niet threadveilig zijn zonder extra synchronisatie. Haskell biedt meerdere types channels, elk met hun eigen eigenschappen.
+Wanneer threads informatie met elkaar moeten uitwisselen, heb je een communication channel nodig. Eenvoudige gedeelde `IORef`s zijn daarvoor niet geschikt omdat ze niet threadsafe zijn zonder extra synchronisatie. Haskell biedt meerdere types channels, elk met hun eigen eigenschappen.
 
-### `Chan` — onbegrensde FIFO channel
+### `Chan` — onbegrensd FIFO channel
 
-`Chan a` is een onbegrensde, threadveilige FIFO channel. Je schrijft waarden in het channel met `writeChan` en leest ze eruit met `readChan`. Als het channel leeg is, blokkeert `readChan` totdat er een waarde beschikbaar is. Het channel groeit automatisch mee naarmate er meer waarden in worden gezet. Met `dupChan` maak je een duplicaat van het channel zodat twee ontvangers onafhankelijk dezelfde stroom van berichten ontvangen:
+`Chan a` is een onbegrensd, threadsafe FIFO channel. Je schrijft waarden in het channel met `writeChan` en leest ze eruit met `readChan`. Als het channel leeg is, blokkeert `readChan` totdat er een waarde beschikbaar is. Het channel groeit automatisch mee naarmate er meer waarden in worden gezet. Met `dupChan` maak je een duplicaat van het channel zodat twee ontvangers onafhankelijk dezelfde stroom van berichten ontvangen:
 
 ```haskell
 import Control.Concurrent
@@ -59,13 +63,13 @@ main = do
   threadDelay 2000000
 ```
 
-Dit klassieke producent-consumentpatroon toont hoe twee threads via een channel samenwerken: de producent schrijft asynchroon, de consument leest blokkerend.
+Dit klassieke producer-consumerpatroon toont hoe twee threads via een channel samenwerken: de producent schrijft asynchroon, de consument leest blocking.
 
 ---
 
 ### `TQueue` — STM-gebaseerde queue (aanbevolen)
 
-`TQueue` is een FIFO queue gebouwd op STM. Ze werkt gelijkaardig aan `Chan`, maar omdat ze STM gebruikt, kun je lees- en schrijfoperaties combineren in bredere atomische transacties. Dat opent de deur naar **niet-blokkerende leesbewerkingen** via `tryReadTQueue`, waarbij je `Nothing` terugkrijgt als de queue leeg is in plaats van te blokkeren. Dit is precies wat je nodig hebt in een game-loop die niet mag pauzeren terwijl hij wacht op invoer:
+`TQueue` is een FIFO queue gebouwd op STM. Ze werkt gelijkaardig aan `Chan`, maar omdat ze STM gebruikt, kun je lees- en schrijfoperaties combineren in bredere atomische transacties. Dat opent de deur naar **niet-blokkerende leesbewerkingen** via `tryReadTQueue`, waarbij je `Nothing` terugkrijgt als de queue leeg is in plaats van te blokkeren. Dit is precies wat je nodig hebt in een game/robot-loop die niet mag pauzeren terwijl hij wacht op invoer:
 
 ```haskell
 import Control.Concurrent.STM
@@ -78,7 +82,7 @@ tryReadTQueue  :: TQueue a -> STM (Maybe a)   -- niet-blokkerend
 isEmptyTQueue  :: TQueue a -> STM Bool
 ```
 
-Een veelgebruikt patroon in FRP-toepassingen is de **event queue**: een aparte invoerthread schrijft events naar de queue, terwijl de hoofdsimulatie bij elke stap de queue leegmaakt. Dit ontkoppelt de timing van invoerverwerking van de timing van de simulatiestappen. Je kunt de queue leegmaken met een helperfunctie die herhaaldelijk probeert te lezen tot er niets meer is:
+Een veelgebruikt patroon in FRP-toepassingen is de **event queue**: een aparte invoerthread schrijft events naar de queue, terwijl de hoofdsimulatie bij elke stap de queue leegmaakt. Dit ontkoppelt de timing van invoerverwerking van de timing van de simulatiestappen. Je kunt de queue leegmaken met een helperfunction die herhaaldelijk probeert te lezen tot er niets meer is:
 
 ```haskell
 import Control.Concurrent.STM
@@ -92,7 +96,22 @@ leegmaken wachtrij = go []
       case mWaarde of
         Nothing     -> return (reverse acc)
         Just waarde -> go (waarde : acc)
+
+main :: IO ()
+main = do
+  wachtrij <- newTQueueIO
+  atomically $ do
+    writeTQueue wachtrij 10
+    writeTQueue wachtrij 20
+    writeTQueue wachtrij 30
+  waarden <- leegmaken wachtrij
+  print waarden       -- [10, 20, 30]
+  leeg <- leegmaken wachtrij
+  print leeg          -- []
 ```
+
+`go` is een lokale hulpfunctie die de queue stap voor stap leeghaalt. `acc` staat voor **accumulator**: de lijst van alle gelezen waarden die stap voor stap wordt opgebouwd. `tryReadTQueue` probeert niet-blokkerend één waarde te lezen — als de queue leeg is, krijg je `Nothing` terug en wordt `reverse acc` teruggegeven (omgekeerd omdat elke nieuwe waarde vóóraan werd toegevoegd met `:`). Is er wél een waarde, dan wordt die bij de accumulator gevoegd en roept `go` zichzelf recursief aan. `atomically` is nodig omdat `tryReadTQueue` een `STM`-actie is, niet rechtstreeks een `IO`-actie: het wikkelt de STM-transactie in een `IO`-actie die atomisch wordt uitgevoerd, zodat geen andere thread de queue tussenin kan aanpassen.
+
 
 ---
 
@@ -199,13 +218,13 @@ We definiëren een algebraïsch datatype voor taken. `Stoppen` fungeert als afsl
 data Taak = VerwerkTekst String | Stoppen deriving (Show)
 ```
 
-Door `Stoppen` in het type op te nemen hebben we geen aparte stopsignaal-`MVar` nodig. De werker weet via patroonmatching wanneer hij klaar is.
+Door `Stoppen` in het type op te nemen hebben we geen aparte stopsignaal-`MVar` nodig. De werker weet via patternmatching wanneer hij klaar is.
 
 ---
 
 ### Stap 3: De werkerthread
 
-De werker leest taken blokkerend uit de `TQueue` via `readTQueue`. Bij `VerwerkTekst` verwerkt hij de taak en roept zichzelf recursief aan. Bij `Stoppen` signaleert hij via `putMVar` dat hij klaar is:
+De werker leest taken blocking uit de `TQueue` via `readTQueue`. Bij `VerwerkTekst` verwerkt hij de taak en roept zichzelf recursief aan. Bij `Stoppen` signaleert hij via `putMVar` dat hij klaar is:
 
 ```haskell
 werker :: TQueue Taak -> MVar () -> IO ()
@@ -255,7 +274,7 @@ main = do
   putStrLn "Alle taken verwerkt."
 ```
 
-`newTQueueIO` en `newEmptyMVar` maken de gedeelde structuren aan. `forkIO` start de werker als lichtgewicht thread, waarna de hoofdthread taken indient en wacht.
+`newTQueueIO` en `newEmptyMVar` maken de gedeelde structuren aan. `forkIO` start de werker als lichtweight thread, waarna de mainthread taken indient en wacht.
 
 ---
 

@@ -1,4 +1,4 @@
-﻿---
+---
 title: "Events"
 weight: 2
 draft: false
@@ -114,20 +114,296 @@ gated = gate
 
 ---
 
-## Volledig voorbeeld — springende bal
+## Demo: een stuiterendebal-simulator bouwen
 
-Het volgende voorbeeld combineert events en continues signalen. Een bal valt door zwaartekracht. Wanneer de hoogte nul bereikt, produceert een event een stuitering. `accumHold` telt het aantal stuiteringen:
+In deze demo bouwen we stap voor stap een simulatie van een stuiterende bal. De bal valt door zwaartekracht, een `edge`-detector registreert het moment dat de bal de grond raakt en `accumHold` telt het aantal stuiteringen.
+
+---
+
+### Stap 1: De module-header en imports
+
+```haskell
+{-# LANGUAGE Arrows #-}
+module Main where
+
+import FRP.Yampa
+```
+
+---
+
+### Stap 2: Hoogte berekenen met `integral`
+
+De bal valt door een constante versnelling van -9.81 m/s². Door twee maal te integreren krijgen we de hoogte. We knippen de hoogte af op nul zodat de bal niet door de vloer zakt:
+
+```haskell
+hoogteSF :: SF () Double
+hoogteSF = proc () -> do
+  snelheid <- integral -< -9.81
+  hoogte   <- integral -< snelheid
+  returnA -< max 0.0 hoogte
+```
+
+---
+
+### Stap 3: Stuitering detecteren met `edge`
+
+`edge` detecteert een stijgende flank: het produceert een event op het moment dat de invoer van `False` naar `True` gaat. We gebruiken dit om te detecteren wanneer de bal de grond raakt (hoogte ≤ 0):
+
+```haskell
+stuiteringsSF :: SF Double (Event ())
+stuiteringsSF = arr (<= 0.0) >>> edge
+```
+
+`arr (<= 0.0)` zet de hoogte om naar een `Bool`-signaal. `edge` produceert een event op het exacte moment dat dat signaal `True` wordt.
+
+---
+
+### Stap 4: Stuiteringen tellen met `accumHold`
+
+`accumHold` houdt de huidige teller bij en verhoogt die bij elk stuiterings-event:
+
+```haskell
+tellerSF :: SF (Event ()) Int
+tellerSF = accumHold 0 (\n () -> n + 1)
+```
+
+---
+
+### Stap 5: Alles samenvoegen met `proc` en testen met `embed`
+
+We verbinden alle stukken in één `proc`-blok en testen de simulatie met `embed`:
+
+```haskell
+stuiterendebal :: SF () (Double, Int)
+stuiterendebal = proc () -> do
+  hoogte     <- hoogteSF    -< ()
+  stuitering <- stuiteringsSF -< hoogte
+  aantal     <- tellerSF    -< stuitering
+  returnA -< (hoogte, aantal)
+
+main :: IO ()
+main = do
+  let stappen  = replicate 30 (0.1, Nothing)
+      uitvoer  = embed stuiterendebal ((), stappen)
+  mapM_ print uitvoer
+```
+
+---
+
+### Volledig programma
+
+<details closed>
+<summary><i><b>Volledig programma — klik om te tonen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+module Main where
+
+import FRP.Yampa
+
+hoogteSF :: SF () Double
+hoogteSF = proc () -> do
+  snelheid <- integral -< -9.81
+  hoogte   <- integral -< snelheid
+  returnA -< max 0.0 hoogte
+
+stuiteringsSF :: SF Double (Event ())
+stuiteringsSF = arr (<= 0.0) >>> edge
+
+tellerSF :: SF (Event ()) Int
+tellerSF = accumHold 0 (\n () -> n + 1)
+
+stuiterendebal :: SF () (Double, Int)
+stuiterendebal = proc () -> do
+  hoogte     <- hoogteSF      -< ()
+  stuitering <- stuiteringsSF -< hoogte
+  aantal     <- tellerSF      -< stuitering
+  returnA -< (hoogte, aantal)
+
+main :: IO ()
+main = do
+  let stappen = replicate 30 (0.1, Nothing)
+      uitvoer = embed stuiterendebal ((), stappen)
+  mapM_ print uitvoer
+```
+
+</p>
+</details>
+
+---
+
+## Oefeningen
+
+<details closed>
+<summary><i><b>GHCi-configuratie voor de demo en oefeningen — klik om te tonen</b></i>🔽</summary>
+<p>
+
+Sla dit bestand op als `.ghci` in de root van je projectdirectory. GHCi laadt het automatisch bij het opstarten.
+
+```haskell
+-- .ghci --- events
+
+-- Prompt
+:set prompt "ghci> "
+:set prompt-cont "     | "
+
+-- Warnings
+:set -Wall
+
+-- Arrow-notatie
+:set -XArrows
+
+-- Yampa beschikbaar stellen (buiten cabal repl)
+:set -package Yampa
+
+-- Imports die in de demo en oefeningen gebruikt worden
+import FRP.Yampa
+```
+
+</p>
+</details>
+
+_De gegeven oplossingen zijn EEN mogelijke oplossing, soms zijn meerdere mogelijkheden juist. Is het gewenste gedrag bereikt, dan is je oplossing correct!_
+
+### Oefeningenreeks 1: Events genereren
+
+- Gebruik `after 2.0 "Klaar"` om een signal function te maken die na 2 seconden één event met de string `"Klaar"` produceert. Test met `embed` over 5 stappen van 0.5s en verifieer dat precies op stap 4 een event verschijnt.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+klaarTimer :: SF () (Event String)
+klaarTimer = after 2.0 "Klaar"
+
+-- embed klaarTimer ((), replicate 5 (0.5, Nothing))
+-- => [NoEvent, NoEvent, NoEvent, Event "Klaar", NoEvent]
+``` -->
+
+- Gebruik `repeatedly 1.0 ()` om een puls te maken die elke seconde een event geeft. Combineer dit met `accumHold 0 (\n () -> n + 1)` om een teller bij te houden. Test over 10 stappen van 0.5s.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
 
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
 
-stuiterendebal :: SF () (Double, Int)
-stuiterendebal = proc () -> do
-  hoogte     <- integral <<< integral -< (-9.81)
-  stuitering <- edge -< hoogte <= 0.0
-  aantStu    <- accumHold 0 (\n () -> n + 1) -< stuitering
-  returnA -< (max 0.0 hoogte, aantStu)
+pulsTeller :: SF () Int
+pulsTeller = proc () -> do
+  puls   <- repeatedly 1.0 () -< ()
+  teller <- accumHold 0 (\n () -> n + 1) -< puls
+  returnA -< teller
+
+-- embed pulsTeller ((), replicate 10 (0.5, Nothing))
+-- => [0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
 ```
 
-Dit voorbeeld is bewust vereenvoudigd (de bal stopt niet echt bij de grond zonder switch), maar toont hoe events en continues signalen naadloos samenwerken in een `proc`-blok.
+</p>
+</details> -->
+
+- Schrijf een signal function `dalendeSFEdge :: SF () (Event ())` die een event produceert op het moment dat een lineair afnemende waarde (van 5.0 met snelheid -1.0 m/s) de nul passeert. Gebruik `constant (-1.0) >>> integral` voor de positie, `arr (<= 0.0)` en `edge`. Test met `embed`.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+dalendeSFEdge :: SF () (Event ())
+dalendeSFEdge = proc () -> do
+  pos <- (arr (+ 5.0) <<< integral) -< -1.0
+  e   <- edge -< pos <= 0.0
+  returnA -< e
+
+-- embed dalendeSFEdge ((), replicate 12 (0.5, Nothing))
+```
+
+</p>
+</details> -->
+
+---
+
+### Oefeningenreeks 2: Events verwerken
+
+- Gebruik `hold 'A'` om een signal function te maken die de laatste ontvangen `Char`-event vasthoudt. Test met `embed houdChar (NoEvent, [(0.1, Just (Event 'B')), (0.1, Nothing), (0.1, Just (Event 'Z'))])`.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+houdChar :: SF (Event Char) Char
+houdChar = hold 'A'
+
+-- embed houdChar (NoEvent, [(0.1, Just (Event 'B')), (0.1, Nothing), (0.1, Just (Event 'Z'))])
+-- => ['A', 'B', 'B', 'Z']
+``` -->
+
+- Gebruik `accumHold` om een score bij te houden die met 10 verhoogd wordt bij elk event. Combineer met `repeatedly 1.0 ()` als puls en test over 6 stappen van 0.5s.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+scoreSF :: SF () Int
+scoreSF = proc () -> do
+  puls  <- repeatedly 1.0 () -< ()
+  score <- accumHold 0 (\s () -> s + 10) -< puls
+  returnA -< score
+
+-- embed scoreSF ((), replicate 6 (0.5, Nothing))
+-- => [0, 0, 10, 10, 20, 20]
+```
+
+</p>
+</details> -->
+
+---
+
+### Oefeningenreeks 3: Events combineren
+
+- Schrijf een signal function die twee events samenvoegt: één na 1.0s met waarde `"A"` en één na 2.0s met waarde `"B"`. Gebruik `mergeEvents`. Test met `embed` over 5 stappen van 0.5s.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+samengevoegd :: SF () (Event String)
+samengevoegd = proc () -> do
+  eA <- after 1.0 "A" -< ()
+  eB <- after 2.0 "B" -< ()
+  returnA -< mergeEvents [eA, eB]
+
+-- embed samengevoegd ((), replicate 5 (0.5, Nothing))
+-- => [NoEvent, Event "A", NoEvent, Event "B", NoEvent]
+```
+
+</p>
+</details> -->
+
+- Schrijf een signal function `gefilterdeTick :: SF Bool (Event ())` die een puls van `repeatedly 0.5 ()` alleen doorlaat als de `Bool`-invoer `True` is. Gebruik `gate`. Test met `embed gefilterdeTick (True, [(0.5, Nothing), (0.5, Just False), (0.5, Nothing), (0.5, Just True)])`.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+gefilterdeTick :: SF Bool (Event ())
+gefilterdeTick = proc actief -> do
+  puls <- repeatedly 0.5 () -< ()
+  returnA -< gate (puls, actief)
+```
+
+</p>
+</details> -->

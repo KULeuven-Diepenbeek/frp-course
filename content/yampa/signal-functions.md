@@ -1,4 +1,4 @@
-﻿---
+---
 title: "Signal Functions"
 weight: 1
 draft: false
@@ -132,3 +132,245 @@ resultaten = embed positie
 ```
 
 De eerste component is de beginwaarde van de invoer. Elk element in de lijst is een paar `(DTime, Maybe a)`: het time difference ten opzichte van de vorige stap, en de optionele nieuwe invoerwaarde (`Nothing` houdt de vorige invoer). `embed` is bijzonder nuttig voor unit tests van signal functions zonder externe dependencies.
+
+---
+
+## Demo: een vallendesimulator bouwen
+
+In deze demo bouwen we stap voor stap een simulatie van een vallende bal. Onderweg komen `arr`, `>>>`, `integral`, `proc`-notatie en `embed` systematisch aan bod.
+
+---
+
+### Stap 1: De module-header en imports
+
+```haskell
+{-# LANGUAGE Arrows #-}
+module Main where
+
+import FRP.Yampa
+```
+
+De `Arrows`-language extension is nodig voor de `proc`/`-<`-syntax. `FRP.Yampa` exporteert `arr`, `integral`, `embed`, `constant` en alle compositie-operatoren.
+
+---
+
+### Stap 2: Eenvoudige transformaties met `arr`
+
+We definiëren een hulp-signal function die een signaal schaalt. Ze is tijdloos: elke tijdpunt wordt onafhankelijk getransformeerd:
+
+```haskell
+schalen :: Double -> SF Double Double
+schalen factor = arr (* factor)
+```
+
+---
+
+### Stap 3: Snelheid en positie via `integral`
+
+`integral` accumuleert de invoer over de tijd. Door twee maal te integreren gaan we van versnelling naar snelheid naar positie:
+
+```haskell
+-- versnelling -> snelheid -> positie
+positieVanVersnelling :: SF Double Double
+positieVanVersnelling = integral >>> integral
+```
+
+---
+
+### Stap 4: De vallendebal in `proc`-notatie
+
+We voegen zwaartekracht en integratie samen in een leesbaar `proc`-blok. Invoer is de beginsnelheid, uitvoer is de hoogte:
+
+```haskell
+vallendebal :: SF Double Double
+vallendebal = proc beginSnelheid -> do
+  let versnelling = -9.81
+  snelheid <- integral -< beginSnelheid + versnelling
+  hoogte   <- integral -< snelheid
+  returnA -< max 0.0 hoogte
+```
+
+`max 0.0` zorgt ervoor dat de bal niet door de vloer zakt.
+
+---
+
+### Stap 5: Testen met `embed`
+
+`embed` voert de signal function uit over een vaste reeks tijdsstappen — geen IO nodig. We simuleren 2 seconden met stappen van 0.1s:
+
+```haskell
+main :: IO ()
+main = do
+  let dt      = 0.1
+      stappen = replicate 20 (dt, Nothing)
+      hoogtes = embed vallendebal (0.0, stappen)
+  mapM_ print hoogtes
+```
+
+De bal start met beginsnelheid 0.0 en valt 2 seconden. De uitvoer is een lijst van hoogtes die richting nul dalen.
+
+---
+
+### Volledig programma
+
+<details closed>
+<summary><i><b>Volledig programma — klik om te tonen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+module Main where
+
+import FRP.Yampa
+
+vallendebal :: SF Double Double
+vallendebal = proc beginSnelheid -> do
+  let versnelling = -9.81
+  snelheid <- integral -< beginSnelheid + versnelling
+  hoogte   <- integral -< snelheid
+  returnA -< max 0.0 hoogte
+
+main :: IO ()
+main = do
+  let dt      = 0.1
+      stappen = replicate 20 (dt, Nothing)
+      hoogtes = embed vallendebal (0.0, stappen)
+  mapM_ print hoogtes
+```
+
+</p>
+</details>
+
+---
+
+## Oefeningen
+
+<details closed>
+<summary><i><b>GHCi-configuratie voor de demo en oefeningen — klik om te tonen</b></i>🔽</summary>
+<p>
+
+Sla dit bestand op als `.ghci` in de root van je projectdirectory. GHCi laadt het automatisch bij het opstarten.
+
+```haskell
+-- .ghci --- signal-functions
+
+-- Prompt
+:set prompt "ghci> "
+:set prompt-cont "     | "
+
+-- Warnings
+:set -Wall
+
+-- Arrow-notatie
+:set -XArrows
+
+-- Yampa beschikbaar stellen (buiten cabal repl)
+:set -package Yampa
+
+-- Imports die in de demo en oefeningen gebruikt worden
+import FRP.Yampa
+```
+
+</p>
+</details>
+
+_De gegeven oplossingen zijn EEN mogelijke oplossing, soms zijn meerdere mogelijkheden juist. Is het gewenste gedrag bereikt, dan is je oplossing correct!_
+
+### Oefeningenreeks 1: `arr` en compositie
+
+- Schrijf een signal function `omzetten :: SF Double Double` die de invoer vermenigvuldigt met 2 en daarna 5 optelt. Gebruik `arr` en `>>>`. Test met `embed omzetten (1.0, [(0.1, Nothing), (0.1, Just 3.0)])`.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+omzetten :: SF Double Double
+omzetten = arr (* 2) >>> arr (+ 5)
+``` -->
+
+- Schrijf een signal function `splitter :: SF Double (Double, Double)` die de invoer zowel verdubbelt als halveert via `&&&`. Test met `embed splitter (4.0, [(0.1, Nothing)])`.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+splitter :: SF Double (Double, Double)
+splitter = arr (* 2) &&& arr (/ 2)
+``` -->
+
+- Schrijf een signal function `verschil :: SF (Double, Double) Double` die het verschil tussen twee invoerkanalen berekent via `***` en daarna `arr (uncurry (-))`. Test met `embed verschil ((10.0, 3.0), [(0.1, Just (8.0, 5.0))])`.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+verschil :: SF (Double, Double) Double
+verschil = arr (uncurry (-))
+``` -->
+
+---
+
+### Oefeningenreeks 2: `integral` en tijdsintegratie
+
+- Schrijf een signal function `afstand :: SF () Double` die een constante snelheid van 2.0 m/s integreert naar een afstand. Gebruik `constant 2.0 >>> integral`. Test over 5 stappen van 0.2s en controleer of de uitvoer `[0.4, 0.8, 1.2, 1.6, 2.0]` is.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+afstand :: SF () Double
+afstand = constant 2.0 >>> integral
+
+-- embed afstand ((), replicate 5 (0.2, Nothing))
+-- => [0.4, 0.8, 1.2, 1.6, 2.0]
+``` -->
+
+- Schrijf een signal function `vallenMetBeginSnelheid :: Double -> SF () Double` die een object laat vallen met een gegeven beginsnelheid (omhoog positief) en zwaartekracht -9.81. Gebruik `proc`-notatie en zorg dat de hoogte niet negatief wordt. Test met beginsnelheid 5.0 over 15 stappen van 0.1s.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+vallenMetBeginSnelheid :: Double -> SF () Double
+vallenMetBeginSnelheid v0 = proc () -> do
+  snelheid <- integral -< v0 + (-9.81)
+  hoogte   <- integral -< snelheid
+  returnA -< max 0.0 hoogte
+
+-- embed (vallenMetBeginSnelheid 5.0) ((), replicate 15 (0.1, Nothing))
+```
+
+</p>
+</details> -->
+
+---
+
+### Oefeningenreeks 3: `proc`-notatie
+
+- Schrijf een signal function `gemiddelde :: SF (Double, Double) Double` in `proc`-notatie die twee invoerkanalen gemiddeld neemt. Test met `embed gemiddelde ((2.0, 8.0), [(0.1, Just (4.0, 6.0))])`.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+gemiddelde :: SF (Double, Double) Double
+gemiddelde = proc (x, y) -> returnA -< (x + y) / 2.0
+``` -->
+
+- Schrijf een signal function `snelheidsMeter :: SF Double (Double, Double)` in `proc`-notatie die zowel de huidige snelheid (invoer) als de afgelegde afstand (integraal van de snelheid) als paar teruggeeft. Test over 10 stappen van 0.1s met constante invoersnelheid 3.0.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+{-# LANGUAGE Arrows #-}
+import FRP.Yampa
+
+snelheidsMeter :: SF Double (Double, Double)
+snelheidsMeter = proc snelheid -> do
+  afstand <- integral -< snelheid
+  returnA -< (snelheid, afstand)
+
+-- embed snelheidsMeter (3.0, replicate 10 (0.1, Nothing))
+```
+
+</p>
+</details> -->
