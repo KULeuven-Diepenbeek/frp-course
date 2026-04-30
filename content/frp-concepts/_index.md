@@ -1,10 +1,11 @@
----
-title: "FRP Concepts"
+﻿---
+title: "FRP-concepten"
 weight: 3
 chapter: true
-draft: false
+pre: "<b>3. </b>"
+draft: true
 ---
 
-# Functional Reactive Programming — Concepts
+### FRP-concepten
 
-See the menu on the left.
+Zie het menu links.

@@ -1,10 +1,11 @@
----
-title: "I/O and State"
+﻿---
+title: "Haskell I/O"
 weight: 2
 chapter: true
-draft: false
+pre: "<b>2. </b>"
+draft: true
 ---
 
-# I/O and State in Haskell
+### Haskell I/O
 
-See the menu on the left.
+Zie het menu links.

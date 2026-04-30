@@ -1,224 +1,129 @@
----
+﻿---
 title: "Switches"
 weight: 4
 draft: false
 ---
 
-## Why switching?
+## State machines in Yampa
 
-A signal function `SF a b` runs continuously. But many systems change their **behaviour** over time: a game character has an idle state, a walking state, an attacking state; a traffic light cycles through red, yellow, and green. Expressing these as a single monolithic `SF` quickly becomes unmanageable.
+In reactieve systemen wil je vaak dat een systeem van **gedrag verandert** op het moment dat een bepaald event optreedt: een vijand gaat van "patrouillerend" naar "achtervolgend" zodra hij de speler ziet; een verkeerslicht schakelt van rood naar groen na een bepaald aantal seconden; een menu-item wordt geselecteerd bij een muisklik. Dit soort discrete overgangen heten **switches** in Yampa.
 
-**Switches** allow a signal function to be **replaced** by another signal function at the moment an event fires. This is the Yampa mechanism for state machines and mode changes.
+Een switch bestaat altijd uit twee delen: een **initiële signal function** die loopt totdat een event optreedt, en een **vervangingsfunctie** die op basis van het event een nieuwe signal function terugggeeft. Vanaf het moment van de switch wordt de nieuwe signal function actief en loopt de oude niet meer.
 
 ---
 
-## `switch` — one-shot switch
+## `switch` — eenvoudige switch
+
+De meest fundamentele switch-operator is:
 
 ```haskell
-switch :: SF a (b, Event c)
-       -> (c -> SF a b)
-       -> SF a b
+switch :: SF a (b, Event c) -> (c -> SF a b) -> SF a b
 ```
 
-`switch sf cont` runs `sf`. As long as `sf` produces `NoEvent` in its second output component, nothing changes. The moment `sf` produces `Event c`, the switch fires:
-
--  `sf` is replaced by `cont c` for all future time.
-- Importantly, the **switch fires in the same instant** as the event (no delay).
-
-### Example — a bouncing ball hitting the floor
+De initiële signal function `SF a (b, Event c)` produceert tegelijkertijd een uitvoerwaarde `b` en een optioneel event `Event c`. Zodra het event `Event c` optreedt, wordt de functie `c -> SF a b` aangeroepen met de eventwaarde, en de teruggegeven signal function neemt het roer over. De nieuwe signal function is permanent: `switch` schakelt precies één keer.
 
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
 
--- Ball in free fall; transitions to resting when it hits the floor
-fallingBall :: SF () Double
-fallingBall = switch falling (\_ -> constant 0.0)
-  where
-    falling :: SF () (Double, Event ())
-    falling = proc _ -> do
-      vel <- integral -< (-9.8)           -- velocity (starts at 0)
-      pos <- (100 +) ^<< integral -< vel  -- position (starts at 100)
-      let hitFloor = if pos <= 0 then Event () else NoEvent
-      returnA -< (max 0 pos, hitFloor)
+-- Beweeg naar rechts gedurende 3 seconden, dan stilstaan
+beweging :: SF () Double
+beweging = switch
+  (proc () -> do
+    pos    <- integral -< 1.0          -- snelheid 1 m/s
+    timer  <- after 3.0 ()  -< ()
+    returnA -< (pos, timer)
+  )
+  (\_ -> constant 3.0)                 -- na 3s: vaste positie 3.0
 ```
 
-When `pos` drops to 0, the `hitFloor` event fires, and the ball transitions permanently to `constant 0.0`.
+Een belangrijk detail: `switch` evalueert zijn initiële signal function ook op time point 0. Als het event *al* op time point 0 optreedt (zoals `now`), schakelt hij onmiddellijk.
 
 ---
 
-## `dSwitch` — delayed switch
+## `dSwitch` — vertraagde switch
+
+`dSwitch` ("delayed switch") werkt als `switch`, maar met één verschil: de **uitvoer van de initiële signal function wordt nog één keer gebruikt** op het time point van de switch, vóórdat de nieuwe signal function overneemt. Dit is nuttig als je het exacte frame van de overgang ook nog wil renderen:
 
 ```haskell
-dSwitch :: SF a (b, Event c)
-        -> (c -> SF a b)
-        -> SF a b
+dSwitch :: SF a (b, Event c) -> (c -> SF a b) -> SF a b
 ```
 
-Identical to `switch` except the switch happens **one infinitesimal step later**. The event instant still produces output from the old SF, and the new SF takes over from the *next* step.
-
-`dSwitch` is used when the event is produced by the same SF that is being switched — this avoids a potential causality loop.
+Het verschil is subtiel maar relevant bij animaties: `switch` geeft al de uitvoer van de nieuwe SF op het switchframe, terwijl `dSwitch` nog de uitvoer van de oude SF laat zien.
 
 ---
 
-## `rSwitch` — restartable switch
+## `rSwitch` — herhaaldelijk schakelende switch
+
+`switch` schakelt slechts één keer. Voor systemen die meerdere keren van gedrag moeten wisselen — zoals een verkeerslicht dat door een cyclus loopt — gebruik je `rSwitch` ("recurring switch"):
 
 ```haskell
 rSwitch :: SF a b -> SF (a, Event (SF a b)) b
 ```
 
-Unlike `switch` (which fires once and is done), `rSwitch` allows the active signal function to be replaced **repeatedly** from an external event. Each time a new `SF a b` arrives in the event, the active SF is swapped.
+`rSwitch` neemt een begingedrag en een eventstroom waarbij elk event een geheel nieuwe signal function meelevert. Elke keer dat er een event arriveert met een nieuwe SF, schakelt `rSwitch` over naar die SF en vervangt de vorige volledig. Dit geeft de volledige flexibiliteit van een state machine waarbij de overgangen zelf door de invoer bepaald worden.
+
+---
+
+## Voorbeeld — verkeerslicht als state machine
+
+Het volgende voorbeeld modelleert een drieledig verkeerslicht als state machine met `switch`. Elk licht duurt een vaste tijd, waarna het volgende licht automatisch begint:
 
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
 
--- Switches between two oscillators when an event fires
-oscillatorSwitch :: SF ((), Event (SF () Double)) Double
-oscillatorSwitch = rSwitch (oscillator 1.0 1.0)
+data Kleur = Rood | Oranje | Groen deriving (Show, Eq)
 
-oscillator :: Double -> Double -> SF () Double
-oscillator amp freq = proc _ -> do
-  t <- time -< ()
-  returnA -< amp * sin (2 * pi * freq * t)
+rood :: SF () Kleur
+rood = switch
+  (proc () -> do
+    timer <- after 5.0 () -< ()
+    returnA -< (Rood, timer)
+  )
+  (\_ -> groen)
+
+groen :: SF () Kleur
+groen = switch
+  (proc () -> do
+    timer <- after 4.0 () -< ()
+    returnA -< (Groen, timer)
+  )
+  (\_ -> oranje)
+
+oranje :: SF () Kleur
+oranje = switch
+  (proc () -> do
+    timer <- after 1.0 () -< ()
+    returnA -< (Oranje, timer)
+  )
+  (\_ -> rood)
+
+verkeerslicht :: SF () Kleur
+verkeerslicht = rood
 ```
 
-Usage: send a new `SF` in the event channel to hot-swap the active behaviour.
-
----
-
-## `kSwitch` — keyed switch
+`embed` toont de cyclus over 12 seconden:
 
 ```haskell
-kSwitch :: SF a b
-        -> SF (a, b) (Event c)
-        -> (SF a b -> c -> SF a b)
-        -> SF a b
-```
-
-`kSwitch sf test cont`:
-
-1. Runs `sf` to produce outputs.
-2. Simultaneously runs `test` on the pair `(input, output)` to detect a transition event.
-3. When the event fires with value `c`, the whole system restarts using `cont sf c` — the continuation receives the **old SF** (so it can reuse it or wrap it).
-
-`kSwitch` is more flexible than `switch` because transition detection can depend on both input and output, and the continuation has access to the old SF.
-
-```haskell
-{-# LANGUAGE Arrows #-}
-import FRP.Yampa
-
--- Bounce with elasticity: when pos hits floor, reverse velocity
--- (simplified: using kSwitch to pass the current SF into continuation)
-bouncingBall :: Double -> SF () Double
-bouncingBall initHeight = kSwitch (freefall initHeight) detectHit bounce
-  where
-    freefall h = proc _ -> do
-      vel <- integral -< (-9.8)
-      pos <- (h +) ^<< integral -< vel
-      returnA -< pos
-
-    detectHit :: SF ((), Double) (Event Double)
-    detectHit = proc (_, pos) -> do
-      returnA -< if pos <= 0 then Event (abs pos * 0.8) else NoEvent
-      -- carry the "rebound height" in the event
-
-    bounce _oldSF reboundHeight = bouncingBall reboundHeight
+test :: [Kleur]
+test = embed verkeerslicht
+  ((), map (\_ -> (0.5, Nothing)) [1..24])
+-- [Rood,Rood,...,Groen,Groen,...,Oranje,Rood,...]
 ```
 
 ---
 
-## `drSwitch` and `dkSwitch`
+## `kSwitch` en `pSwitch` — geavanceerde varianten
 
-Like `dSwitch`, the `d`-prefixed variants (`drSwitch`, `dkSwitch`) delay the switch by one infinitesimal step to avoid causality issues when the event is produced by the switching SF itself.
+Yampa biedt nog twee varianten voor speciale gevallen:
 
----
-
-## Parallel switches — `pSwitch` and `dpSwitch`
-
-For collections of signal functions that can be added, removed, or modified dynamically:
+**`kSwitch`** ("continuation switch") geeft bij de switch ook de *huidige* initiële signal function mee als argument aan de vervangingsfunctie. Dit maakt het mogelijk de "oude" SF in de nieuwe SF te hergebruiken — handig voor pauzeren/hervatten:
 
 ```haskell
-pSwitch  :: Functor col
-          => (forall sf. (a -> col sf -> col (ext, sf)))
-          -> col (SF ext b)
-          -> SF (a, col b) (Event c)
-          -> (col (SF ext b) -> c -> SF a (col b))
-          -> SF a (col b)
+kSwitch :: SF a (b, Event c) -> (SF a (b, Event c) -> c -> SF a b) -> SF a b
 ```
 
-`pSwitch` runs a **collection** of signal functions in parallel. A supervision SF watches the outputs and can reorganise the collection (fire, add, or remove SFs) when an event occurs.
+**`pSwitch`** ("parallel switch") laat een hele **collectie** signal functions parallel lopen en geeft een event al de controle om die collectie dynamisch aan te passen. Dit is de basis voor dynamische entiteitscollecties in games (zie het geavanceerde hoofdstuk).
 
-This is the foundation for particle systems, entity-component systems, and multi-agent simulations:
-
-```haskell
--- Conceptual example: pool of particles managed by pSwitch
-type Particle = SF () (Double, Double)   -- SF producing (x, y) position
-
--- Each particle drifts with its own velocity
-particle :: (Double, Double) -> Particle
-particle (vx, vy) = proc _ -> do
-  x <- integral -< vx
-  y <- integral -< vy
-  returnA -< (x, y)
-
--- The collection starting state
-initialParticles :: [Particle]
-initialParticles = map particle [(1.0, 0.5), (-0.5, 1.0), (0.8, -0.8)]
-```
-
-Full `pSwitch` wiring is complex; see the Advanced section.
-
----
-
-## Implementing a state machine with `switch`
-
-State machines are a natural fit for `switch`. Each state is its own `SF`, and transitions are events:
-
-```haskell
-{-# LANGUAGE Arrows #-}
-import FRP.Yampa
-
-data TrafficLight = Red | Yellow | Green deriving (Show, Eq)
-
-trafficLight :: SF () TrafficLight
-trafficLight = redPhase
-
-redPhase :: SF () TrafficLight
-redPhase = switch
-  (proc _ -> do
-    done <- after 30.0 () -< ()    -- red for 30 seconds
-    returnA -< (Red, done))
-  (\_ -> greenPhase)
-
-greenPhase :: SF () TrafficLight
-greenPhase = switch
-  (proc _ -> do
-    done <- after 25.0 () -< ()    -- green for 25 seconds
-    returnA -< (Green, done))
-  (\_ -> yellowPhase)
-
-yellowPhase :: SF () TrafficLight
-yellowPhase = switch
-  (proc _ -> do
-    done <- after 5.0 () -< ()     -- yellow for 5 seconds
-    returnA -< (Yellow, done))
-  (\_ -> redPhase)
-```
-
-Each phase uses `after` to fire a transition event, then `switch` replaces itself with the next phase.
-
----
-
-## Summary
-
-| Switch | Description |
-|---|---|
-| `switch sf cont` | One-shot. When event fires, replace SF with `cont eventVal`. Switch happens immediately. |
-| `dSwitch sf cont` | Like `switch`, but one step delayed. Avoids causality issues. |
-| `rSwitch sf` | Repeated hot-swap. New SF arrives in the event channel. |
-| `drSwitch sf` | Like `rSwitch`, but delayed. |
-| `kSwitch sf test cont` | Filtered switch. Transition detection can use output; continuation receives old SF. |
-| `dkSwitch sf test cont` | Like `kSwitch`, but delayed. |
-| `pSwitch` | Parallel collection of SFs with dynamic membership. |
-| `dpSwitch` | Like `pSwitch`, but delayed. |
+Voor de meeste toepassingen zijn `switch`, `dSwitch` en `rSwitch` voldoende. `kSwitch` en `pSwitch` zijn nodig zodra je complexere compositie nodig hebt.

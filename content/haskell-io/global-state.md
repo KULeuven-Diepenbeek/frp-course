@@ -1,131 +1,90 @@
----
-title: "Global State — IORef and MVar"
+﻿---
+title: "Globale State — IORef en MVar"
 weight: 2
 draft: false
 ---
 
-## Why mutable state?
+## Mutable state in een pure taal
 
-Haskell values are immutable by default. But real programs often need to track state over time: a counter, a configuration setting, a cache. Haskell provides **mutable references** inside `IO` to handle this in a principled way.
+Haskell-waarden zijn standaard onveranderlijk. Als je eenmaal een waarde aan een naam hebt gebonden, verandert die waarde nooit meer. Dit is een grote sterkte van de taal: het maakt het eenvoudig om over code te redeneren en elimineert een hele klasse fouten die met gedeelde mutable state gepaard gaan. In de praktijk zijn er echter situaties waarbij je state wil bijhouden die evolueert doorheen de uitvoering van het programma: een teller, een cache, de huidige configuratie, of de positie van een spelentiteit.
 
-The key insight is that mutability is **not hidden**: the type system makes it visible. A mutable reference always lives inside `IO` (or another monad with `IO` capabilities), so you can never accidentally mutate something in a pure function.
+Voor zulke gevallen biedt Haskell **mutable referenties** binnen de `IO`-monade. Het sleutelprincipe is dat de veranderlijkheid altijd zichtbaar is in het type: een functie die werkt met een `IORef` of `MVar` heeft altijd een type dat `IO` bevat, zodat de compiler weet dat er neveneffecten in het spel zijn. Je kunt een `IORef` nooit per ongeluk aanpassen in een pure functie — het type-systeem verhindert dat.
 
 ---
 
-## `IORef` — a simple mutable cell
+## `IORef` — een eenvoudige mutable cel
 
-`IORef a` is a mutable reference to a value of type `a`. It lives in the `IO` monad.
-
-### Import
+`IORef a` is een mutable referentie naar een waarde van type `a`. Je maakt één aan met `newIORef`, leest de huidige waarde met `readIORef`, overschrijft de waarde met `writeIORef`, en past de waarde aan met een pure functie via `modifyIORef'`. Al deze operaties leven in de `IO`-monade.
 
 ```haskell
 import Data.IORef
+
+newIORef    :: a -> IO (IORef a)
+readIORef   :: IORef a -> IO a
+writeIORef  :: IORef a -> a -> IO ()
+modifyIORef' :: IORef a -> (a -> a) -> IO ()
 ```
 
-### Creating and reading
-
-```haskell
-newIORef   :: a -> IO (IORef a)        -- create with initial value
-readIORef  :: IORef a -> IO a          -- read current value
-writeIORef :: IORef a -> a -> IO ()    -- overwrite with new value
-modifyIORef :: IORef a -> (a -> a) -> IO ()  -- apply a pure function
-modifyIORef' :: IORef a -> (a -> a) -> IO () -- strict version (avoids thunk build-up)
-```
-
-### Example — simple counter
+Een klassiek voorbeeld is een teller die tien keer verhoogd wordt. De `modifyIORef'`-functie neemt een pure functie `(a -> a)` en past die toe op de huidige waarde:
 
 ```haskell
 import Data.IORef
 
 main :: IO ()
 main = do
-  counter <- newIORef (0 :: Int)
-
-  -- Increment ten times
-  mapM_ (\_ -> modifyIORef' counter (+1)) [1..10]
-
-  val <- readIORef counter
-  putStrLn ("Final count: " ++ show val)
+  teller <- newIORef (0 :: Int)
+  mapM_ (\_ -> modifyIORef' teller (+1)) [1..10]
+  waarde <- readIORef teller
+  putStrLn ("Eindwaarde: " ++ show waarde)
 ```
 
-### When to use `modifyIORef'` vs `modifyIORef`
+### `modifyIORef'` versus `modifyIORef`
 
-The tick (`'`) version is **strict**: it evaluates the new value immediately. The non-strict version builds up a chain of thunks, which can cause a space leak in long-running loops. **Always prefer `modifyIORef'`** when modifying inside a loop.
+Er bestaan twee versies: de strenge versie met apostrof (`modifyIORef'`) en de luie versie zonder (`modifyIORef`). De luie versie bouwt bij herhaald gebruik in een loop een keten van niet-geëvalueerde thunks op, wat geheugenlekkage veroorzaakt. **Gebruik altijd de strenge versie `modifyIORef'`** staan wanneer je een `IORef` in een loop aanpast.
 
 ---
 
-## Global variables with `IORef`
+## Een `IORef` doorgeven als argument
 
-A common pattern is to define a top-level `IORef` using `unsafePerformIO`. This should be used sparingly and only when there is genuinely one piece of global state for the whole program (e.g., a global configuration or a logger).
-
-```haskell
-import Data.IORef
-import System.IO.Unsafe (unsafePerformIO)
-
--- Global mutable counter — note: not thread-safe
-{-# NOINLINE globalCounter #-}
-globalCounter :: IORef Int
-globalCounter = unsafePerformIO (newIORef 0)
-
-incrementGlobal :: IO ()
-incrementGlobal = modifyIORef' globalCounter (+1)
-
-readGlobal :: IO Int
-readGlobal = readIORef globalCounter
-```
-
-> **Warning:** `unsafePerformIO` bypasses Haskell's purity guarantees. It is correct here only because `globalCounter` is a referentially stable, unique allocation. Never use it to perform arbitrary IO at the top level. For multi-threaded programs, use `MVar` or `TVar` instead (see below).
-
-A **safer** alternative that avoids `unsafePerformIO` is to create the `IORef` in `main` and pass it down explicitly:
+De meest idiomatische manier om mutable state in Haskell te beheren, is om de `IORef` aan te maken in `main` en door te geven als argument aan de functies die hem nodig hebben. Dit houdt de code transparant: elke functie die de state kan veranderen, heeft een `IORef` als parameter, en dat is direct zichtbaar in zijn type.
 
 ```haskell
 import Data.IORef
 
-runApp :: IORef Int -> IO ()
-runApp counter = do
-  modifyIORef' counter (+1)
-  val <- readIORef counter
-  putStrLn ("Counter is now: " ++ show val)
+verwerkItem :: IORef Int -> String -> IO ()
+verwerkItem teller item = do
+  putStrLn ("Verwerken: " ++ item)
+  modifyIORef' teller (+1)
 
 main :: IO ()
 main = do
-  counter <- newIORef (0 :: Int)
-  runApp counter
-  runApp counter
+  teller <- newIORef (0 :: Int)
+  let items = ["appel", "peer", "banaan"]
+  mapM_ (verwerkItem teller) items
+  n <- readIORef teller
+  putStrLn ("Verwerkt: " ++ show n ++ " items")
 ```
-
-This is the recommended approach for most programs.
 
 ---
 
-## `MVar` — thread-safe mutable state
+## `MVar` — threadsafe mutable state
 
-`MVar a` is a **mutable variable** designed for safe concurrent access. It works like a box that can be either **full** (holds a value) or **empty**:
+`IORef` is niet threadveilig: als meerdere threads tegelijkertijd een `IORef` lezen en schrijven, kunnen er raceconditities optreden. Voor gedeelde state tussen threads gebruik je `MVar a`, een mutable variabele die ontworpen is voor veilig concurrente toegang.
 
-- **Taking** from an empty `MVar` blocks until it becomes full.
-- **Putting** into a full `MVar` blocks until it becomes empty.
-
-This blocking behaviour makes `MVar` a natural mutex.
-
-### Import
+Een `MVar` werkt als een doos die ofwel **vol** is (bevat een waarde) ofwel **leeg** is. De operatie `takeMVar` neemt de waarde uit de doos en maakt hem leeg — als de doos al leeg was, blokkeert de aanroepende thread totdat een andere thread er een waarde in zet. `putMVar` zet een waarde in een lege doos — als de doos al vol was, blokkeert de aanroepende thread totdat een andere thread de waarde heeft weggenomen. Dit blokkeringsgedrag maakt `MVar` een natuurlijk mutex-mechanisme.
 
 ```haskell
 import Control.Concurrent.MVar
+
+newMVar      :: a -> IO (MVar a)
+newEmptyMVar :: IO (MVar a)
+takeMVar     :: MVar a -> IO a
+putMVar      :: MVar a -> a -> IO ()
+readMVar     :: MVar a -> IO a           -- lees zonder leeg te maken (atomisch)
+modifyMVar_  :: MVar a -> (a -> IO a) -> IO ()  -- atomische aanpassing
 ```
 
-### Core operations
-
-```haskell
-newMVar     :: a -> IO (MVar a)             -- create full MVar
-newEmptyMVar :: IO (MVar a)                 -- create empty MVar
-takeMVar    :: MVar a -> IO a               -- take value (empties it, blocks if empty)
-putMVar     :: MVar a -> a -> IO ()         -- put value (blocks if full)
-readMVar    :: MVar a -> IO a               -- read without emptying (atomic)
-modifyMVar_ :: MVar a -> (a -> IO a) -> IO () -- atomic modify
-modifyMVar  :: MVar a -> (a -> IO (a, b)) -> IO b -- atomic modify with result
-```
-
-### Example — thread-safe counter
+Een voorbeeld van een threadveilige teller waarbij tien threads elk duizend keer verhogen:
 
 ```haskell
 import Control.Concurrent
@@ -133,74 +92,67 @@ import Control.Concurrent.MVar
 
 main :: IO ()
 main = do
-  counter <- newMVar (0 :: Int)
-
-  -- Spawn 10 threads, each incrementing the counter 1000 times
-  let increment = modifyMVar_ counter (\c -> return (c + 1))
-  threads <- mapM (\_ -> forkIO (mapM_ (const increment) [1..1000])) [1..10]
-
-  -- Give threads time to finish
-  threadDelay 100000    -- 100 ms
-
-  final <- readMVar counter
-  putStrLn ("Expected: 10000, Got: " ++ show final)
+  teller <- newMVar (0 :: Int)
+  let verhoog = modifyMVar_ teller (\n -> return (n + 1))
+  threads <- mapM (\_ -> forkIO (mapM_ (const verhoog) [1..1000])) [1..10]
+  threadDelay 200000   -- wacht 200 ms zodat alle threads kunnen eindigen
+  eindwaarde <- readMVar teller
+  putStrLn ("Verwacht: 10000, Gekregen: " ++ show eindwaarde)
 ```
 
-### `MVar` as a mutex
+### `MVar` als mutex
 
-`MVar` is often used purely as a **lock** — the value inside is `()`, and the presence/absence of the value represents locked/unlocked:
+Een andere frequente toepassing van `MVar` is als een loutere vergrendeling, waarbij de waarde binnenin niet belangrijk is maar de aan/afwezigheid de lock-status aangeeft. Dit wordt ook wel een binaire semafoor of mutex genoemd:
 
 ```haskell
 import Control.Concurrent.MVar
 
-withLock :: MVar () -> IO a -> IO a
-withLock lock action = do
-  takeMVar lock          -- acquire
-  result <- action
-  putMVar lock ()        -- release
-  return result
+metSlot :: MVar () -> IO a -> IO a
+metSlot slot actie = do
+  takeMVar slot     -- vergrendeling acquireren
+  resultaat <- actie
+  putMVar slot ()   -- vergrendeling vrijgeven
+  return resultaat
 
 main :: IO ()
 main = do
-  lock <- newMVar ()
-  withLock lock $ putStrLn "Critical section"
+  slot <- newMVar ()
+  metSlot slot $ putStrLn "Kritische sectie"
 ```
 
 ---
 
-## STM and `TVar` — composable transactions
+## STM en `TVar` — samengestelde transacties
 
-For more complex concurrent state, the **Software Transactional Memory** (STM) library provides `TVar` — a transactional variable. Multiple `TVar` reads and writes can be grouped into a single atomic transaction.
+Voor complexere scenario's met meerdere gedeelde variabelen biedt de **Software Transactional Memory** (STM) library `TVar`, een transactionele variabele. Het krachtige aan STM is dat je meerdere lees- en schrijfoperaties op verschillende `TVar`s kunt groeperen in één atomische transactie via `atomically`. Als een andere thread tussenin een van de gebruikte `TVar`s aanpast, wordt de hele transactie automatisch opnieuw uitgevoerd — transparant en zonder deadlocks.
 
 ```haskell
 import Control.Concurrent.STM
 
-transfer :: TVar Int -> TVar Int -> Int -> STM ()
-transfer from to amount = do
-  fromBal <- readTVar from
-  toBal   <- readTVar to
-  writeTVar from (fromBal - amount)
-  writeTVar to   (toBal   + amount)
+overschrijving :: TVar Int -> TVar Int -> Int -> STM ()
+overschrijving van naar bedrag = do
+  saldoVan  <- readTVar van
+  saldoNaar <- readTVar naar
+  writeTVar van  (saldoVan  - bedrag)
+  writeTVar naar (saldoNaar + bedrag)
 
 main :: IO ()
 main = do
-  accountA <- newTVarIO 1000
-  accountB <- newTVarIO 500
-  atomically (transfer accountA accountB 200)
-  a <- readTVarIO accountA
-  b <- readTVarIO accountB
+  rekeningA <- newTVarIO 1000
+  rekeningB <- newTVarIO 500
+  atomically (overschrijving rekeningA rekeningB 200)
+  a <- readTVarIO rekeningA
+  b <- readTVarIO rekeningB
   putStrLn ("A: " ++ show a ++ ", B: " ++ show b)
 ```
 
-`atomically` runs the transaction; if any `TVar` is modified by another thread during the transaction, the whole transaction **retries automatically**. This eliminates entire classes of race conditions and deadlocks.
-
 ---
 
-## Choosing the right tool
+## Wanneer welk hulpmiddel?
 
-| Scenario | Use |
+| Scenario | Gebruik |
 |---|---|
-| Simple mutable state, single thread | `IORef` |
-| Shared state between threads (simple) | `MVar` |
-| Shared state between threads (complex, atomic) | `TVar` / STM |
-| Global singleton (use sparingly) | `IORef` + `unsafePerformIO` or pass as argument |
+| Eenvoudige mutable state, één thread | `IORef` |
+| Gedeelde state tussen threads, eenvoudig | `MVar` |
+| Gedeelde state, complexe atomische bewerkingen | `TVar` / STM |
+| Globale configuratie (gebruik spaarzaam) | `IORef` als argument in `main` |

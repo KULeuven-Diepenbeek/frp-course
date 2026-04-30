@@ -1,22 +1,14 @@
----
-title: "Concurrency and Queues"
+﻿---
+title: "Concurrency en Queues"
 weight: 3
 draft: false
 ---
 
-## Concurrency in Haskell
+## Concurrentie in Haskell
 
-Haskell's concurrency model is built on **lightweight threads** managed by the GHC runtime. These are not OS threads but user-space green threads that are multiplexed across a pool of OS threads (the number of OS threads is controlled by the `+RTS -N` runtime flag).
+De Haskell-runtime (GHC) ondersteunt **lichtgewicht threads**: groene threads die door de runtime zelf beheerd worden en op een pool van echte OS-threads draaien. Je kunt tienduizenden Haskell-threads aanmaken zonder noemenswaardige overhead, want ze worden efficiënt ingepland door de runtime-scheduler. Het aantal OS-threads dat de runtime gebruikt, stel je in via de runtime-vlag `+RTS -N` (of `-N4` voor vier cores).
 
-### Spawning threads
-
-```haskell
-import Control.Concurrent
-
-forkIO :: IO () -> IO ThreadId
-```
-
-`forkIO` spawns a new lightweight thread that runs the given `IO` action concurrently. The parent thread continues immediately after the call.
+Een nieuwe thread aanmaken doe je met `forkIO`. Deze functie neemt een `IO ()`-actie en voert die uit in een aparte thread, terwijl de aanroepende thread onmiddellijk verder gaat. De return-waarde is een `ThreadId` waarmee je de thread later kunt inspecteren of stoppen:
 
 ```haskell
 import Control.Concurrent
@@ -24,164 +16,131 @@ import Control.Concurrent
 main :: IO ()
 main = do
   forkIO $ do
-    threadDelay 500000   -- wait 0.5 s
-    putStrLn "Thread done"
-  putStrLn "Main continues"
-  threadDelay 1000000    -- keep alive long enough
+    threadDelay 500000    -- wacht 0,5 seconden
+    putStrLn "Thread klaar"
+  putStrLn "Main gaat verder"
+  threadDelay 1000000     -- houd main lang genoeg in leven
 ```
 
-### `threadDelay`
-
-```haskell
-threadDelay :: Int -> IO ()
-```
-
-Pauses the current thread for (at least) the given number of **microseconds**:
-
-```haskell
-threadDelay 1000000   -- 1 second
-threadDelay 16667     -- ~60 FPS frame time
-```
+De functie `threadDelay` pauzeert de huidige thread voor het opgegeven aantal **microseconden**. Dit is de standaard manier om een loop op een vaste framerate te laten draaien, of om te wachten op externe events.
 
 ---
 
-## Channels and queues
+## Channels en queues
 
-Passing data between threads requires a shared communication channel. Haskell provides several options.
+Wanneer threads informatie met elkaar moeten uitwisselen, heb je een communication channel nodig. Eenvoudige gedeelde `IORef`s zijn daarvoor niet geschikt omdat ze niet threadveilig zijn zonder extra synchronisatie. Haskell biedt meerdere types channels, elk met hun eigen eigenschappen.
 
-### `Chan` — unbounded FIFO channel
+### `Chan` — onbegrensde FIFO channel
 
-`Chan a` is an unbounded, thread-safe FIFO channel.
-
-```haskell
-import Control.Concurrent.Chan
-
-newChan   :: IO (Chan a)
-writeChan :: Chan a -> a -> IO ()
-readChan  :: Chan a -> IO a          -- blocks if empty
-dupChan   :: Chan a -> IO (Chan a)   -- create a duplicate reader
-```
-
-**Example — producer/consumer**
+`Chan a` is een onbegrensde, threadveilige FIFO channel. Je schrijft waarden in het channel met `writeChan` en leest ze eruit met `readChan`. Als het channel leeg is, blokkeert `readChan` totdat er een waarde beschikbaar is. Het channel groeit automatisch mee naarmate er meer waarden in worden gezet. Met `dupChan` maak je een duplicaat van het channel zodat twee ontvangers onafhankelijk dezelfde stroom van berichten ontvangen:
 
 ```haskell
 import Control.Concurrent
 import Control.Concurrent.Chan
 
-producer :: Chan Int -> IO ()
-producer chan = mapM_ (\i -> do
-    putStrLn ("Producing: " ++ show i)
-    writeChan chan i
+producent :: Chan Int -> IO ()
+producent kanaal = mapM_ (\i -> do
+    putStrLn ("Produceren: " ++ show i)
+    writeChan kanaal i
     threadDelay 200000
   ) [1..5]
 
-consumer :: Chan Int -> IO ()
-consumer chan = do
-  val <- readChan chan
-  putStrLn ("Consuming: " ++ show val)
-  consumer chan
+consument :: Chan Int -> IO ()
+consument kanaal = do
+  waarde <- readChan kanaal
+  putStrLn ("Consumeren: " ++ show waarde)
+  consument kanaal
 
 main :: IO ()
 main = do
-  chan <- newChan
-  forkIO (consumer chan)
-  producer chan
+  kanaal <- newChan
+  forkIO (consument kanaal)
+  producent kanaal
   threadDelay 2000000
 ```
 
-### `TChan` — STM-based channel
+Dit klassieke producent-consumentpatroon toont hoe twee threads via een channel samenwerken: de producent schrijft asynchroon, de consument leest blokkerend.
 
-`TChan` is the transactional version of `Chan`. It can be used inside `atomically` blocks, allowing you to compose channel reads and writes with other STM operations.
+---
 
-```haskell
-import Control.Concurrent.STM
-import Control.Concurrent.STM.TChan
+### `TQueue` — STM-gebaseerde queue (aanbevolen)
 
-newTChanIO  :: IO (TChan a)
-writeTChan  :: TChan a -> a -> STM ()
-readTChan   :: TChan a -> STM a      -- retries if empty
-tryReadTChan :: TChan a -> STM (Maybe a)  -- non-blocking
-```
-
-**Example — non-blocking read**
+`TQueue` is een FIFO queue gebouwd op STM. Ze werkt gelijkaardig aan `Chan`, maar omdat ze STM gebruikt, kun je lees- en schrijfoperaties combineren in bredere atomische transacties. Dat opent de deur naar **niet-blokkerende leesbewerkingen** via `tryReadTQueue`, waarbij je `Nothing` terugkrijgt als de queue leeg is in plaats van te blokkeren. Dit is precies wat je nodig hebt in een game-loop die niet mag pauzeren terwijl hij wacht op invoer:
 
 ```haskell
 import Control.Concurrent.STM
-import Control.Concurrent.STM.TChan
-
-drainQueue :: TChan String -> IO [String]
-drainQueue chan = atomically $ do
-  first <- tryReadTChan chan
-  case first of
-    Nothing  -> return []
-    Just msg -> do
-      rest <- drainAll chan
-      return (msg : rest)
-  where
-    drainAll c = do
-      m <- tryReadTChan c
-      case m of
-        Nothing -> return []
-        Just x  -> fmap (x:) (drainAll c)
-```
-
-### `TQueue` — STM-based queue (preferred over `TChan`)
-
-`TQueue` is a simpler, more efficient FIFO queue built on STM. It does not support `dupChan`-style broadcasting but is faster for straightforward producer/consumer patterns.
-
-```haskell
 import Control.Concurrent.STM.TQueue
 
-newTQueue    :: STM (TQueue a)
-newTQueueIO  :: IO (TQueue a)
-writeTQueue  :: TQueue a -> a -> STM ()
-readTQueue   :: TQueue a -> STM a         -- blocks (retries) if empty
-tryReadTQueue :: TQueue a -> STM (Maybe a) -- non-blocking
-isEmptyTQueue :: TQueue a -> STM Bool
+newTQueueIO    :: IO (TQueue a)
+writeTQueue    :: TQueue a -> a -> STM ()
+readTQueue     :: TQueue a -> STM a           -- blokkeert als leeg
+tryReadTQueue  :: TQueue a -> STM (Maybe a)   -- niet-blokkerend
+isEmptyTQueue  :: TQueue a -> STM Bool
 ```
 
-**Example — event queue for a game loop**
+Een veelgebruikt patroon in FRP-toepassingen is de **event queue**: een aparte invoerthread schrijft events naar de queue, terwijl de hoofdsimulatie bij elke stap de queue leegmaakt. Dit ontkoppelt de timing van invoerverwerking van de timing van de simulatiestappen. Je kunt de queue leegmaken met een helperfunctie die herhaaldelijk probeert te lezen tot er niets meer is:
+
+```haskell
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
+
+leegmaken :: TQueue a -> IO [a]
+leegmaken wachtrij = go []
+  where
+    go acc = do
+      mWaarde <- atomically (tryReadTQueue wachtrij)
+      case mWaarde of
+        Nothing     -> return (reverse acc)
+        Just waarde -> go (waarde : acc)
+```
+
+---
+
+### Voorbeeld — event queue voor een game loop
+
+Het volgende voorbeeld toont hoe je een invoerthread combineert met een verwerkings loop via een `TQueue`. De invoerthread simuleert toetsaanslagen en schrijft ze naar de queue. De hoofdloop draait op een vaste framerate en verwerkt bij elke frame alle beschikbare events:
 
 ```haskell
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue
 
-data InputEvent = KeyPress Char | MouseClick Int Int deriving (Show)
+data InvoerEvent = ToetsW | ToetsS | Stoppen deriving (Show, Eq)
 
--- Separate thread that generates input events
-inputThread :: TQueue InputEvent -> IO ()
-inputThread queue = do
-  atomically $ writeTQueue queue (KeyPress 'w')
-  threadDelay 100000
-  atomically $ writeTQueue queue (KeyPress 's')
-  threadDelay 100000
-  atomically $ writeTQueue queue (MouseClick 320 240)
+invoerThread :: TQueue InvoerEvent -> IO ()
+invoerThread wachtrij = do
+  threadDelay 500000
+  atomically $ writeTQueue wachtrij ToetsW
+  threadDelay 500000
+  atomically $ writeTQueue wachtrij ToetsS
+  threadDelay 1000000
+  atomically $ writeTQueue wachtrij Stoppen
 
--- Main loop that processes events
-processEvents :: TQueue InputEvent -> IO ()
-processEvents queue = do
-  mEvent <- atomically $ tryReadTQueue queue
-  case mEvent of
-    Nothing  -> putStrLn "(no event)"
-    Just evt -> putStrLn ("Event: " ++ show evt)
-  threadDelay 50000
-  processEvents queue
+verwerkEvents :: TQueue InvoerEvent -> IO ()
+verwerkEvents wachtrij = do
+  events <- leegmaken wachtrij
+  mapM_ (\e -> putStrLn ("Event: " ++ show e)) events
+  let doorgaan = Stoppen `notElem` events
+  if doorgaan
+    then do
+      threadDelay 16667     -- ~60 FPS
+      verwerkEvents wachtrij
+    else putStrLn "Spel gestopt."
 
 main :: IO ()
 main = do
-  queue <- newTQueueIO
-  forkIO (inputThread queue)
-  processEvents queue
+  wachtrij <- newTQueueIO
+  forkIO (invoerThread wachtrij)
+  verwerkEvents wachtrij
 ```
 
-This pattern — **input thread writes to queue, main loop drains queue** — is exactly what you will use when integrating Yampa's `reactimate` function with real input sources (see the Yampa section).
+Dit patroon — invoerthread schrijft naar een `TQueue`, simulatie loop leegt de queue per frame — is precies wat je gebruikt wanneer je Yampa's `reactimate`-functie koppelt aan echte invoerbronnen. De `TQueue` fungeert als buffer die het verschil in timing tussen de invoerthread en de simulatie opvangt.
 
 ---
 
-## `MVar` as a one-element queue
+### `MVar` als enkelvoudig channel
 
-An `MVar` can act as a **synchronous one-shot channel**: the sender blocks if the receiver has not yet consumed the previous message. This is useful for handshakes.
+Een `MVar` kan ook fungeren als een synchroon éénplaats channel: de zender blokkeert als de vorige waarde nog niet afgehaald is. Dit is nuttig voor een handshake-patroon waarbij je wil dat de ontvanger expliciet bevestigt dat hij elke waarde heeft verwerkt voordat de volgende verzonden wordt:
 
 ```haskell
 import Control.Concurrent
@@ -189,27 +148,22 @@ import Control.Concurrent.MVar
 
 main :: IO ()
 main = do
-  mvar <- newEmptyMVar
-
+  kanaal <- newEmptyMVar
   forkIO $ do
     threadDelay 500000
-    putMVar mvar "Hello from thread"    -- send
-
-  msg <- takeMVar mvar                  -- receive (blocks until sent)
-  putStrLn msg
+    putMVar kanaal "Bericht van thread"    -- verzenden
+  bericht <- takeMVar kanaal               -- ontvangen (blokkeert)
+  putStrLn bericht
 ```
 
 ---
 
-## Putting it all together — summary
+## Samenvatting
 
-| Tool | Characteristic | Best for |
+| Hulpmiddel | Eigenschap | Wanneer te gebruiken |
 |---|---|---|
-| `IORef` | No thread safety | Single-threaded state |
-| `MVar` | Mutex / blocking 1-slot | Simple synchronisation, locks |
-| `Chan` | Unbounded FIFO, thread-safe | Simple producer/consumer |
-| `TChan` | STM channel, composable | Complex transactional reads |
-| `TQueue` | STM FIFO, efficient | Game loops, event queues |
-| `TVar` | Atomic transactional state | Shared state with composable transactions |
-
-For the FRP use-case covered in this course, `TQueue` is the most practical choice: the input thread pushes sensor/event values into a queue, and the Yampa game loop drains the queue each tick.
+| `IORef` | Niet threadveilig | Enkelvoudige thread, lokale state |
+| `MVar` | Mutex / blokkerend éénplaatskanaal | Eenvoudige synchronisatie tussen threads |
+| `Chan` | Onbegrensd FIFO, threadveilig | Eenvoudig producent-consumentpatroon |
+| `TQueue` | STM FIFO, niet-blokkerend lezen mogelijk | Game loops, event queues (aanbevolen) |
+| `TVar` | Atomische transactional state | Complexe gedeelde state met meerdere variabelen |

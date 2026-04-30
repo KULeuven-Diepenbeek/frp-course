@@ -1,10 +1,11 @@
----
+﻿---
 title: "Yampa"
 weight: 4
 chapter: true
-draft: false
+pre: "<b>4. </b>"
+draft: true
 ---
 
-# Yampa
+### Yampa
 
-See the menu on the left.
+Zie het menu links.

@@ -1,277 +1,143 @@
----
-title: "Advanced Yampa"
+﻿---
+title: "Geavanceerde Yampa"
 weight: 5
 draft: false
 ---
 
-## Topics covered
+## Feedback met `loop`
 
-This section collects patterns that go beyond the basics:
-
-- Recursive signal functions (self-referential `SF`)
-- Dynamic collections with `dpSwitch`
-- Continuations and higher-order signal functions
-- Integration with real I/O (full worked example)
-- Performance considerations
-
----
-
-## Recursive signal functions
-
-Yampa supports **recursive signal function networks** using `loop` (from the `ArrowLoop` class):
+Tot nu toe zijn alle signal functions **acyclisch** in hun gegevensstroom: de uitvoer beïnvloedt de invoer niet. Yampa biedt echter `loop` om **feedback** te realiseren: een deel van de uitvoer wordt teruggevoerd als extra invoer:
 
 ```haskell
 loop :: SF (a, c) (b, c) -> SF a b
 ```
 
-The second output component is fed back as an additional input component, with a **one-sample delay** to break the cycle.
+`loop sf` verpakt een signal function `sf` die een paar `(a, c)` als invoer verwacht en een paar `(b, c)` produceert. De tweede component `c` van de uitvoer wordt teruggevoerd als tweede component van de invoer bij de *volgende* time step. Dit is vertraagde feedback: er is altijd één time step vertraging in de loop, wat causaliteit garandeert.
+
+Een klassiek gebruik is een filter met geheugen, zoals een lopend gemiddelde:
 
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
 
--- Manual double-integration using loop
--- (integrate velocity to get position,
---  the position feeds back conceptually — here just shown structurally)
-doubleIntegral :: SF Double Double
-doubleIntegral = proc accel -> do
-  vel <- integral -< accel
-  pos <- integral -< vel
-  returnA -< pos
+lopendGemiddelde :: Int -> SF Double Double
+lopendGemiddelde n = proc invoer -> do
+  rec
+    som    <- iPre 0.0 -< som + invoer - oudste
+    oudste <- iPre 0.0 -< invoer
+  returnA -< som / fromIntegral n
 ```
 
-A practical use for `loop`: a PID controller where the error is computed from the difference between a target and the current (fed-back) output.
-
-```haskell
-{-# LANGUAGE Arrows #-}
-import FRP.Yampa
-
--- Simple P controller: output = Kp * (target - current)
--- Uses loopPre to feed output back
-pController :: Double -> SF Double Double
-pController kp = loopPre 0 $ proc (target, prev) -> do
-  let err    = target - prev
-      output = kp * err
-  returnA -< (output, output)
-```
+`iPre v` ("initialized pre") geeft de vorige waarde van een signaal terug, geïnitialiseerd op `v`. Dit is de laagste building block voor feedback en recursieve signal functions.
 
 ---
 
 ## Higher-order signal functions
 
-Signal functions are **first-class values** in Haskell. You can pass them as arguments, store them in data structures, and return them from functions — enabling higher-order FRP patterns.
+Yampa's signal functions zijn gewone Haskell-waarden en kunnen daarom doorgegeven, opgeslagen, en dynamisch gewisseld worden. Het is mogelijk om signal functions te maken die zichzelf of andere signal functions als invoer ontvangen. Dit noemt men **higher-order signal functions**.
 
-### Parameterised SFs
-
-```haskell
-import FRP.Yampa
-
--- A spring: returns a SF for a spring with given stiffness k and damping d
-springSystem :: Double -> Double -> SF Double Double
-springSystem k d = proc force -> do
-  rec
-    pos <- (0 +) ^<< integral -< vel
-    vel <- (0 +) ^<< integral -< (force - k * pos - d * vel)
-  returnA -< pos
-```
-
-### Selecting between SFs at runtime
+Een eenvoudig voorbeeld: een "verzwakker" die een signal function inpakt en zijn uitvoer halveert:
 
 ```haskell
-choose :: Bool -> SF a b -> SF a b -> SF a b
-choose True  sf _  = sf
-choose False _  sf = sf
+verzwakker :: SF a Double -> SF a Double
+verzwakker sf = sf >>> arr (* 0.5)
 ```
 
-Of course, `choose` ignores time — for *dynamic* switching use `rSwitch` (see Switches section).
+Een ingewikkelder voorbeeld: een signal function die dynamisch tussen twee gedragingen wisselt op basis van een booleaans signaal:
+
+```haskell
+schakelaar :: SF a b -> SF a b -> SF (a, Bool) b
+schakelaar sf1 sf2 = proc (invoer, keuze) ->
+  if keuze
+    then sf1 -< invoer
+    else sf2 -< invoer
+```
+
+Let op: dit is **niet** hetzelfde als een switch. Hier draait altijd maar één van de twee SFs per time step. Beide SFs bewaren hun interne state onafhankelijk.
 
 ---
 
-## Dynamic collections with `dpSwitch`
+## Dynamische entiteitscollecties met `dpSwitch`
 
-`dpSwitch` manages a **dynamic collection** of parallel signal functions. Use it when entities can be added or removed at runtime (enemy waves, particles, UI widgets).
+Een van de meest geavanceerde toepassingen van Yampa is het beheren van een **dynamische verzameling entiteiten**: spelletjesfiguren die aangemaakt en verwijderd worden tijdens het spel. Yampa biedt hiervoor `dpSwitch` (en `pSwitch`).
+
+Het idee: je onderhoudt een collectie (een `Map` of lijst) van signal functions voor actieve entiteiten. Een aparte signal function bewaakt de collectie en produceert events die entiteiten toevoegen of verwijderen:
 
 ```haskell
-dpSwitch :: Functor col
-          => (forall sf. (a -> col sf -> col (ext, sf)))
-          -> col (SF ext b)
-          -> SF (a, col b) (Event c)
-          -> (col (SF ext b) -> c -> SF a (col b))
-          -> SF a (col b)
+import FRP.Yampa
+import qualified Data.Map.Strict as Map
+
+type EntiteitId = Int
+type Entiteiten a b = Map.Map EntiteitId (SF a b)
+
+-- dpSwitch laat een hele Map van SFs parallel lopen
+-- en geeft een event om de Map te wijzigen
+dpSwitch
+  :: Functor col
+  => (forall sf. col sf -> input -> col (input, sf))
+  -> col (SF input output)
+  -> SF (input, col output) (Event switchevent)
+  -> (col (SF input output) -> switchevent -> SF input (col output))
+  -> SF input (col output)
 ```
 
-Compared to `pSwitch`, `dpSwitch` delays the reorganisation by one step.
+In de praktijk gebruikt men `dpSwitch` via een helper library zoals `yampa-utils` of schrijft men een wrapper die eenvoudiger te gebruiken is. De kern van het patroon is:
 
-**Conceptual entity system:**
+```haskell
+beheerEntiteiten :: SF GameInvoer (Map EntiteitId EntiteitUitvoer)
+beheerEntiteiten = dpSwitch
+  routeerInvoer           -- verspreid invoer naar elk entiteits-SF
+  beginEntiteiten         -- beginverzameling van SF's
+  detecteerWijzigingen    -- SF die bijhoudt welke entiteiten toegevoegd/verwijderd moeten worden
+  pasAan                  -- update de collectie bij elke switch
+```
+
+---
+
+## Volledig voorbeeld — eenvoudige 2D-simulatie
+
+Het volgende voorbeeld combineert alle technieken: meerdere objecten met zwaartekracht, elk met hun eigen signal function, beheerd via een lijst:
 
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
-import qualified Data.IntMap.Strict as IM
 
-type EntityId  = Int
-type EntityMap = IM.IntMap
+data Object = Object { objX :: Double, objY :: Double } deriving (Show)
 
-data EntityInput = EntityInput { deltaTime :: DTime }
+objectSF :: (Double, Double) -> SF () Object
+objectSF (startX, startY) = proc () -> do
+  let zwaartekracht = -9.81
+  vy  <- integral -< zwaartekracht
+  x   <- integral -< 0.0          -- geen horizontale versnelling
+  y   <- integral -< vy
+  returnA -< Object (startX + x) (startY + y)
 
--- Each entity is its own SF
-enemy :: EntityId -> SF EntityInput (Double, Double)
-enemy eid = proc inp -> do
-  t <- time -< ()
-  let x = fromIntegral eid * 50.0 + sin t * 10.0
-      y = 100.0
-  returnA -< (x, y)
+simulatie :: SF () [Object]
+simulatie = proc () -> do
+  obj1 <- objectSF (0.0, 10.0) -< ()
+  obj2 <- objectSF (5.0, 20.0) -< ()
+  obj3 <- objectSF (2.0, 15.0) -< ()
+  returnA -< [obj1, obj2, obj3]
 
--- Route: give each entity the global input
-routeEntities :: EntityInput
-              -> EntityMap (SF EntityInput (Double, Double))
-              -> EntityMap (EntityInput, SF EntityInput (Double, Double))
-routeEntities inp = IM.map (\sf -> (inp, sf))
-
--- Supervision: remove entities that go off-screen (y < 0)
-supervise :: SF (EntityInput, EntityMap (Double, Double)) (Event (EntityMap (SF EntityInput (Double, Double)) -> EntityMap (SF EntityInput (Double, Double))))
-supervise = proc (_, positions) -> do
-  let offscreen = IM.filter (\(_, y) -> y < 0) positions
-  returnA -< if IM.null offscreen
-               then NoEvent
-               else Event (IM.filterWithKey (\k _ -> not (IM.member k offscreen)))
+testSimulatie :: [Object]
+testSimulatie = head $ embed simulatie
+  ((), [(0.016, Nothing)])
 ```
 
----
-
-## A full worked example — a simple game
-
-This example ties together `reactimate`, signal functions, events, and switches in a minimal console game: a ball falls and you press ENTER to "bounce" it.
-
-```haskell
-{-# LANGUAGE Arrows #-}
-module Main where
-
-import FRP.Yampa
-import Control.Concurrent
-import Control.Concurrent.STM
-import Control.Concurrent.STM.TQueue
-import Data.Time.Clock
-import Data.IORef
-import System.IO
-
--- Input events from the player
-data GameInput = Bounce | Tick deriving (Show, Eq)
-
--- Output drawn each frame
-data GameOutput = GameOutput
-  { goHeight :: Double
-  , goScore  :: Int
-  } deriving (Show)
-
--- The ball: position and score, resets on Bounce event
-ball :: SF [GameInput] GameOutput
-ball = proc inputs -> do
-  let bounceEvt = if Bounce `elem` inputs then Event () else NoEvent
-  score    <- accumHold 0 -< fmap (const (+1)) bounceEvt
-  height   <- ballHeight   -< bounceEvt
-  returnA  -< GameOutput height score
-
-ballHeight :: SF (Event ()) Double
-ballHeight = switch (falling 100.0) (\_ -> ballHeight)
-  where
-    falling h = proc bounceEvt -> do
-      vel <- integral        -< (-50.0)
-      pos <- (h +) ^<< integral -< vel
-      let hitEvt = if pos <= 0 then Event () else NoEvent
-      let merged = mergeEvents [bounceEvt, hitEvt]
-      returnA -< (max 0 pos, merged)
-
--- Sense: read from TQueue + measure time
-senseInput :: TQueue GameInput
-           -> IORef UTCTime
-           -> Bool
-           -> IO (DTime, Maybe [GameInput])
-senseInput q lastRef _ = do
-  threadDelay 16667          -- ~60 FPS
-  now    <- getCurrentTime
-  prev   <- readIORef lastRef
-  writeIORef lastRef now
-  inputs <- drainQueue q
-  return (realToFrac (diffUTCTime now prev), Just inputs)
-
-drainQueue :: TQueue a -> IO [a]
-drainQueue q = go []
-  where
-    go acc = do
-      mv <- atomically (tryReadTQueue q)
-      case mv of
-        Nothing -> return (reverse acc)
-        Just v  -> go (v : acc)
-
--- Input thread: read keyboard asynchronously
-inputThread :: TQueue GameInput -> IO ()
-inputThread q = do
-  hSetBuffering stdin NoBuffering
-  hSetEcho stdin False
-  let loop = do
-        c <- getChar
-        when (c == '\n') $ atomically (writeTQueue q Bounce)
-        loop
-  loop
-
-main :: IO ()
-main = do
-  inputQ   <- newTQueueIO
-  lastTime <- newIORef =<< getCurrentTime
-  forkIO (inputThread inputQ)
-
-  putStrLn "Press ENTER to bounce the ball. Ctrl-C to quit."
-
-  reactimate
-    (return [])                             -- init
-    (senseInput inputQ lastTime)            -- sense
-    (\_ out -> do                           -- actuate
-        let h = round (goHeight out) :: Int
-        putStr ("\rheight=" ++ show h ++ "  score=" ++ show (goScore out) ++ "   ")
-        return False)
-    ball
-```
+Dit voorbeeld toont hoe je meerdere objecten met hun eigen state tegelijk kunt simuleren. Elke `objectSF` houdt zijn eigen positie bij, volledig onafhankelijk van de anderen.
 
 ---
 
-## Performance considerations
+## Performancetips
 
-### Avoiding time leaks
+Yampa is ontworpen voor efficiënt gebruik in realtime toepassingen, maar er zijn een paar aandachtspunten:
 
-Yampa's `integral` can accumulate large floats over time. For long-running simulations, consider resetting the clock-based position occasionally or using fixed-point arithmetic.
+**Vermijd onnodige `arr`-kettingen**: Elke `arr` voegt een functieaanroep toe. In kritische code kun je meerdere transformaties samenvoegen in één `arr (f . g . h)` in plaats van `arr f >>> arr g >>> arr h`.
 
-### `dpSwitch` vs `pSwitch`
+**Gebruik `iPre` met zorg**: `iPre` introduceert een vertraging van één time step. In sommige gevallen is dat gewenst, maar het kan ook leiden tot subtiele timing-problemen als je er te vrijelijk mee omgaat.
 
-Prefer `dpSwitch` in most cases — the one-step delay breaks causality cycles and generally leads to more predictable behaviour. Only use `pSwitch` if you need the reorganisation to take effect in the same instant as the event.
+**Houd time steps klein en consistent**: Grote time steps (> 0.1s) kunnen leiden tot inconsistente fysica, met name bij integratie. In games streef je naar ~60 FPS (time step ~0.016s).
 
-### Profiling
+**Profileer met GHC's profiler**: Voor serieuze toepassingen compileer je met `-prof -fprof-auto` en analyseer je welke signal functions de meeste tijd verbruiken.
 
-Add `+RTS -N -sstderr` when running to see GC pressure. Strict operations (`modifyIORef'`, `seq`, `deepseq`) help avoid space leaks in long loops.
-
----
-
-## Useful packages
-
-| Package | Description |
-|---|---|
-| `Yampa` | Core FRP library |
-| `yampa-test` | Property-based testing for SFs using QuickCheck |
-| `bearriver` | Drop-in Yampa replacement, dunai-based |
-| `dunai` | Generalised reactive systems (monadic stream functions) |
-| `keera-hails` | Full game framework built on Yampa |
-| `sdl2` | SDL2 bindings for rendering/input (pairs well with Yampa) |
-| `gloss` | Simple 2D graphics in Haskell, easy to drive with Yampa |
-
----
-
-## Summary
-
-| Pattern | When to use |
-|---|---|
-| `loop` / `loopPre` | Recursive/feedback signal networks |
-| Parameterised SFs | Reusable physics, controllers |
-| `dpSwitch` | Dynamic collections of entities |
-| `rSwitch` | Hot-swap the active SF from an event stream |
-| `TQueue` + `forkIO` | Decouple async input from simulation step |
-| `embed` | Unit-test signal functions without a real loop |
+**Overweeg `BangPatterns` voor strikte evaluatie**: Haskell evalueert standaard lui, wat in Yampa loops tot stapeling van thunks kan leiden. `{-# LANGUAGE BangPatterns #-}` en expliciete `!`-patronen helpen dit te voorkomen.

@@ -16,3 +16,6 @@ resources/
 
 # Hugo output directory (built by GitHub Actions)
 docs/
+
+# extra
+todelete/

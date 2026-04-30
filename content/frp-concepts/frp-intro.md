@@ -1,127 +1,53 @@
----
-title: "What is Functional Reactive Programming?"
+﻿---
+title: "Wat is Functioneel Reactief Programmeren?"
 weight: 1
 draft: false
 ---
 
-## Motivation
+## Het probleem: state en time
 
-Many programs are essentially about **change over time**: a game character moves between frames, a sensor reading updates every millisecond, a user interface responds to mouse clicks. Imperative code handles this with mutable state, callbacks, and event loops — an approach that tends to produce tangled, hard-to-test code.
+De meeste programma's moeten omgaan met de wereld zoals die continu verandert: een muis die beweegt, sensoren die waarden doorgeven, spelletjesfiguren die bewegen, netwerkcommunicatie die binnenkomt. De traditionele manier om daarmee om te gaan is **state mutation**: je houdt variabelen bij die de huidige state van het systeem beschrijven, je polt regelmatig de invoer, je past de variabelen aan, en je geeft de nieuwe state weer. Dit werkt, maar het leidt snel tot code die moeilijk te redeneren valt: de state verspreid zich over het hele programma, de volgorde van updates is subtiel, en het wordt steeds moeilijker om na te gaan waarom het systeem zich in een bepaalde state bevindt.
 
-**Functional Reactive Programming** (FRP) offers an alternative: model time-varying values and events as first-class values in the language, and express program logic as compositions of pure functions over those values.
-
----
-
-## Two core abstractions
-
-All FRP systems are built on two dual concepts. Different FRP libraries use different names, but the ideas are the same:
-
-### 1. Behaviours (Signals)
-
-A **behaviour** (also called a **signal**) is a value that varies continuously over time. It can be thought of as a function from time to a value:
-
-$$\text{Behaviour}(a) \cong \text{Time} \to a$$
-
-Examples:
-- The $x$-position of a moving object: `Behaviour Double`
-- The current time: `Behaviour Time`
-- Whether a key is held down: `Behaviour Bool`
-
-### 2. Events
-
-An **event** is a sequence of discrete occurrences, each carrying a value. Events happen at specific moments in time and are **not** defined between occurrences:
-
-$$\text{Event}(a) \cong [(\ \text{Time},\ a\ )]$$
-
-Examples:
-- A mouse click carrying the position: `Event (Int, Int)`
-- A key press carrying the character: `Event Char`
-- A timer firing every second: `Event ()`
+Functioneel Reactief Programmeren (FRP) biedt een alternatief: in plaats van expliciete state updates beschrijf je **hoe de uitvoer continu afhangt van de invoer als functie van de time**. Het systeem is geen reeks van stap-voor-stap mutaties, maar een declaratieve beschrijving van relaties. Je zegt niet "update positie x met delta", maar "de positie is de integraal van de snelheid". Dit is fundamenteel anders en brengt krachtige abstracties mee.
 
 ---
 
-## How FRP differs from callbacks
+## Behaviours en Events
 
-Consider detecting when a falling ball hits the floor.
+De oorspronkelijke FRP-theorie van Conal Elliott en Paul Hudak (1997, "Functional Reactive Animation") introduceert twee kernconcepten:
 
-**Imperative approach (callbacks):**
+Een **Behaviour** is een waarde die continu varieert in de time. Je kunt het formeel zien als een functie `Time -> a`. De positie van de muis is een `Behaviour (Double, Double)`. De huidige time zelf is een `Behaviour Double`. Het volume van een microfoon is een `Behaviour Double`. Behaviours zijn altijd gedefinieerd: op elk moment in de time heeft een behaviour een waarde.
 
-```python
-ball_y = 500.0
+Een **Event** is een stroom van discrete gebeurtenissen, elk op een specifiek time point. Een toetsaanslag is een event. Het klikken van een muisknop is een event. Het aflopen van een timer is een event. Events zijn **niet** continu: ze zijn er soms wel, soms niet. Formeel is een event een (mogelijkerwijs oneindige) lijst van timestamps met bijbehorende waarden: `[(Time, a)]`.
 
-def on_update(dt):
-    global ball_y
-    ball_y -= 9.8 * dt
-    if ball_y <= 0:
-        on_hit_floor()
-
-def on_hit_floor():
-    ball_y = 0
-    start_bounce_animation()
-```
-
-The logic is scattered. The `on_hit_floor` callback is registered somewhere else. Mutable state is shared globally. Testing requires simulating the whole update loop.
-
-**FRP approach (conceptual):**
-
-```
-ballY     : Behaviour Double
-           = integral gravity 500
-
-hitFloor  : Event ()
-           = when (ballY <= 0)
-
-ballY'    : Behaviour Double
-           = switch ballY hitFloor (const bounceAnimation)
-```
-
-The program is a **declarative description** of relationships between time-varying values. There is no mutation — each definition is a pure equation. The FRP runtime handles executing the updates.
+De kracht van FRP zit in de combinatoren: je kunt behaviours samenvoegen, transformeren, integreren en differentiëren. Je kunt events filteren, vertragen, samenvoegen. En je kunt behaviours veranderen op het moment dat een event optreedt. Dit geeft een rijke algebra om reactieve systemen te beschrijven zonder expliciete state mutation.
 
 ---
 
-## A brief history
+## Push-based vs. pull-based FRP
 
-| Year | System | Significance |
-|---|---|---|
-| 1997 | **FRAN** (Functional Reactive ANimation) | First FRP system, by Conal Elliott & Paul Hudak |
-| 2002 | **FrTime** | FRP in Scheme |
-| 2003 | **Yampa** | Arrow-based FRP in Haskell, still widely used |
-| 2010s | **Reactive Banana**, **Reflex**, **reactive-banana** | Push-based FRP for GUI/web |
-| 2013+ | **Elm** | FRP-inspired language for front-end web |
-| 2010s | **RxJS / RxJava** | Reactive extensions, inspired by FRP concepts, mainstream |
+Er zijn twee implementatiestrategieën voor FRP. Bij **pull-based** FRP vraagt het systeem bij elke update-stap actief de huidige waarde van elk behaviour op: het "trekt" waarden uit het systeem. Dit is eenvoudig te implementeren maar kan inefficiënt zijn als veel behaviours worden berekend terwijl ze nauwelijks veranderen.
 
-This course focuses on **Yampa**, which is well-suited for game development and simulations because it models continuous time explicitly.
+Bij **push-based** FRP worden waarden automatisch doorgegeven wanneer een invoer verandert: het systeem "duwt" updates door het netwerk van afhankelijkheden. Dit is efficiënter maar complexer te implementeren, en geeft aanleiding tot problemen zoals **glitches** (tijdelijk inconsistente state als niet alle afhankelijkheden tegelijkertijd geüpdate worden).
+
+Moderne FRP-libraries gebruiken vaak hybride benaderingen om de voor- en nadelen te balanceren.
 
 ---
 
-## Push vs. pull
+## Problemen met klassieke FRP en de komst van Arrowized FRP
 
-FRP implementations differ in how they propagate changes:
+De originele "behaviours en events"-stijl van FRP heeft in de praktijk problemen opgeleverd. Het voornaamste probleem is **ruimtelek**: door behaviours als functies van de time te modelleren, moeten ze de volledige geschiedenis van hun invoer kunnen raadplegen, wat geheugengebruik doet groeien naarmate de time verstrijkt. Bovendien zijn higher-order behaviours (behaviours die zelf behaviours produceren) conceptueel krachtig maar kunnen ze tot onvoorspelbaar geheugengebruik leiden.
 
-- **Pull-based**: values are computed on demand. The system "pulls" the current value of a behaviour whenever it needs it. Simple to implement but potentially wasteful (recomputing everything every frame).
-- **Push-based**: changes propagate automatically from sources to dependents. More efficient but harder to implement correctly (requires dependency tracking).
+**Arrowized FRP** lost dit op door het concept van een *signal function* te introduceren. Een signal function is een transformatie van een signaalstroom naar een andere signaalstroom: `SF a b` is een functie die loopt over signalen van type `a` en signalen van type `b` produceert. Signal functions hebben **geen directe toegang tot verleden of toekomst** van het signaal: ze zijn causal (ze kunnen alleen de huidige waarde en geïntegreerde waarden gebruiken). Dit garandeert dat het geheugengebruik beheersbaar blijft.
 
-Yampa uses a **pull-based** model: each simulation step, the system pulls the current output from the signal network given the current input and elapsed time.
-
----
-
-## Why Yampa in this course?
-
-Yampa is:
-
-- **Mature**: actively maintained, used in real game projects (including the [Keera Hails](https://github.com/keera-studios/keera-hails) framework).
-- **Arrow-based**: its API aligns with Haskell's `Arrow` type class, which provides principled composition of stateful computations.
-- **Explicit about time**: the `DTime` (delta time) parameter is first-class, making physics and animation straightforward.
-- **Teachable**: the core concepts (signal functions, `reactimate`, switches) can be learned incrementally.
+Yampa is de meest gebruikte implementatie van Arrowized FRP in Haskell en is het onderwerp van de rest van deze cursus.
 
 ---
 
-## Summary
+## Waarom Yampa?
 
-| Concept | Description |
-|---|---|
-| FRP | Programming paradigm for time-varying and event-driven systems |
-| Behaviour / Signal | Value that changes continuously over time |
-| Event | Discrete occurrence at a specific moment, carrying a value |
-| Pull-based FRP | Values computed on request (Yampa's model) |
-| Push-based FRP | Changes propagate automatically (Reflex, reactive-banana) |
+Yampa is een mature, stabiele Haskell library voor Arrowized FRP die al meer dan twintig jaar actief gebruikt en onderhouden wordt. Ze is ontworpen voor realtime toepassingen zoals simulaties en games. Ze is gebaseerd op het type `SF a b` ("signal function from `a` to `b`") en gebruikt Haskell's **arrow-notatie** (`proc`/`-<`) als syntactische suiker voor het samenstellen van signal functions.
+
+Yampa heeft een kleine maar expressieve kern. De meeste signal functions zijn combinatoren die andere signal functions samenstellen: serieel (`>>>`), parallel (`***`), of conditioneel via switches. Deze compositionele aanpak maakt het gemakkelijk om complexe reactieve systemen op te bouwen uit eenvoudige building blocks. Bovendien is Yampa puur functioneel: er is geen verborgen global state, geen mutatie achter de schermen. Dit maakt Yampa-code goed testbaar en redeneerbaar.
+
+De volgende secties leiden je stap voor stap door de kernconcepten van Yampa: signal functions, events, reactimate, switches, en geavanceerde technieken.

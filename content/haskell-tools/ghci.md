@@ -1,165 +1,199 @@
----
-title: "Configuring GHCi with .ghci"
+﻿---
+title: "GHCi configureren met .ghci"
 weight: 1
 draft: false
 ---
 
-## What is `.ghci`?
+## Wat is een `.ghci`-bestand?
 
-When GHCi starts, it looks for a configuration file called `.ghci`. This file is executed as a sequence of GHCi commands before the interactive prompt appears. It is the standard way to customise the GHCi session for a project without passing flags on the command line every time.
+GHCi is de interactieve interpreter van GHC en fungeert als een **REPL** — wat staat voor **Read-Eval-Print Loop**. Een REPL leest een expression die je intypt, evalueert die expression, drukt het resultaat af, en wacht vervolgens op de volgende invoer. Dit maakt GHCi ideaal om snel code uit te proberen, types op te vragen met `:t` en definities te inspecteren met `:i`, zonder telkens een volledig programma te compileren.
 
-GHCi looks for the file in the following order:
+Wanneer je GHCi opstart, zoekt het naar een configuratiebestand met de naam `.ghci`. De inhoud van dat bestand wordt automatisch uitgevoerd vóór de interactieve prompt verschijnt, alsof je die commando's zelf had ingetypt. Dit mechanisme is de standaardmanier om je GHCi-sessie aan te passen aan je project of je persoonlijke voorkeur, zonder telkens opnieuw dezelfde opties op de commandoregel in te typen.
 
-1. `./.ghci` — a project-level file in the current working directory.
-2. `~/.ghci` — a user-level file in the home directory.
+GHCi zoekt naar het configuratiebestand op twee plaatsen, in deze volgorde: eerst in de huidige werkdirectory als `./.ghci`, dan in je homedirectory als `~/.ghci`. Het projectbestand in de huidige directory heeft voorrang op het globale gebruikersbestand. Dat betekent dat je je persoonlijke standaardinstellingen in het gebruikersbestand kunt zetten, terwijl elk project zijn eigen specifieke instellingen krijgt in een lokaal `.ghci`-bestand.
 
-The project-level file takes precedence; settings in the user-level file act as global defaults.
-
----
-
-## Basic syntax
-
-Every line in a `.ghci` file is either:
-
-- A **GHCi meta-command** starting with `:` (e.g. `:set`, `:load`, `:module`).
-- A **Haskell expression** that is evaluated on startup (useful to import modules or define helpers).
-- A **comment** starting with `--`.
-
-```haskell
--- .ghci example
-:set prompt "λ> "
-:set -Wall
-import Data.List (sort)
-```
+Elke regel in een `.ghci`-bestand is ofwel een GHCi-metacommando dat begint met `:` (zoals `:set` of `:load`), ofwel een gewone Haskell expression die bij het opstarten geëvalueerd wordt, ofwel een commentaarregel die begint met `--`. Bij Haskell expressions kun je bijvoorbeeld standaardmodules importeren zodat ze altijd beschikbaar zijn in de interactieve sessie.
 
 ---
 
-## Common settings
+## De prompt aanpassen
 
-### Changing the prompt
-
-The default GHCi prompt is `Prelude>`. A custom prompt makes it easier to see which modules are loaded and gives the session a personal touch.
+De standaardprompt van GHCi is `Prelude>`, wat weinig informatief is zodra je meerdere modules geladen hebt. Met `:set prompt` kun je de prompt vervangen door een eigen tekst. Dit klinkt als een kleine aanpassing, maar in de praktijk helpt een duidelijke prompt je snel zien in welke context je werkt. Moderne terminals ondersteunen ook ANSI-kleurcodes, zodat je de prompt kleur kunt geven voor extra leesbaarheid.
 
 ```haskell
+-- Eenvoudige aangepaste prompt
 :set prompt "ghci> "
--- or use ANSI colours (supported in modern terminals)
+
+-- Prompt met ANSI-kleur (groen + reset)
 :set prompt "\ESC[1;32mghci\ESC[0m> "
 ```
 
-For multi-line prompts (continuation lines):
+Naast de hoofdprompt is er ook een vervolgprompt die getoond wordt wanneer je een expression over meerdere regels intypt. Die stel je in met `:set prompt-cont`:
 
 ```haskell
 :set prompt-cont "  | "
 ```
 
-### Enabling compiler warnings
+---
+
+## Compiler warnings inschakelen
+
+GHC beschikt over een uitgebreid systeem van warnings dat je helpt veelgemaakte fouten vroegtijdig te ontdekken. De vlag `-Wall` schakelt de meest nuttige warnings in één keer in: onvolledige patternmatching, ongebruikte bindings, ontbrekende typeannotations, enzovoort. Het is sterk aangeraden om `-Wall` standaard in te schakelen. Een warning is geen fout - de code compileert gewoon - maar ze wijzen op plekken in je code die mogelijk onbedoeld gedrag kunnen veroorzaken.
 
 ```haskell
--- Enable all warnings (equivalent to -Wall on the command line)
+-- Schakel alle gangbare warnings in
 :set -Wall
 
--- Enable some specific groups
+-- Of schakel specifieke warnings in
 :set -Wincomplete-patterns
 :set -Wunused-imports
 ```
 
-`-Wall` is strongly recommended in a course setting — it catches incomplete pattern matches, unused bindings, and many other common mistakes before they become bugs.
+---
 
-### Enabling language extensions
+## Language extensions activeren
 
-You can activate GHC language extensions inside `.ghci` using `:set -X<ExtensionName>`:
+Haskell heeft een stabiele kern (Haskell 2010), maar GHC biedt tientallen optionele language extensions aan. Je kunt deze extensions per bestand activeren met een `{-# LANGUAGE ... #-}`-pragma bovenaan het bestand, maar je kunt ze ook globaal inschakelen voor je interactieve GHCi-sessie via `:set -X<ExtensienNaam>`. Dat is handig wanneer je snel iets wilt uitproberen in de REPL  zonder telkens een pragma toe te voegen.
+
+Enkele veelgebruikte extensies die je in je `.ghci` zou kunnen opnemen:
 
 ```haskell
+-- Maakt het mogelijk om string literals te gebruiken voor elk type dat IsString implementeert
 :set -XOverloadedStrings
+
+-- Maakt het mogelijk om typevariabelen expliciet te scopen binnen een functiedefinitie
 :set -XScopedTypeVariables
-:set -XTupleSections
+
+-- Nodig voor de proc-notatie van arrow-programma's (o.a. Yampa)
+:set -XArrows
 ```
 
-This is equivalent to writing `{-# LANGUAGE OverloadedStrings #-}` at the top of every file you load in that session.
+Het is belangrijk om te begrijpen dat extensies in `.ghci` alleen gelden voor de interactieve sessie, niet voor de code die je compileert met Cabal. Voor compileerprojecten stel je extensies in via het `.cabal`-bestand (zie het Cabal-hoofdstuk).
 
-> **Warning:** Extensions enabled globally in `.ghci` apply only to the interactive session, not to compiled code. For permanent project-wide extensions, add them to your `.cabal` file (see the Cabal section).
+---
 
-### Setting the editor
+## Modules automatisch laden
 
-GHCi's `:edit` command opens a file in an external editor. Configure which editor to use:
-
-```haskell
-:set editor vim
--- or
-:set editor "code --wait"
-```
-
-### Loading modules automatically
-
-You can ask GHCi to load a specific module every time it starts in a given project directory:
+Je kunt GHCi opdragen om bij het opstarten automatisch een bepaalde module te laden. Daarvoor gebruik je `:load`. Dit is bijzonder handig in een project waarbij je steeds met dezelfde module wil beginnen werken:
 
 ```haskell
 :load Main
 ```
 
-Or import frequently used modules so they are always available:
+Je kunt ook modules importeren zodat hun functies direct beschikbaar zijn in de REPL, zonder dat je ze telkens opnieuw moet importeren:
 
 ```haskell
-import Control.Monad (forM_, when, unless)
+import Data.ByteString.Char8 (pack, unpack)
+import Data.List (sort)
 import Data.Maybe (fromMaybe, mapMaybe)
 ```
 
 ---
 
-## A practical project-level `.ghci`
+## Packages beschikbaar stellen met `:set -package`
 
-Below is a realistic `.ghci` file for a small Haskell project:
+Standaard laadt GHCi buiten een Cabal-project alleen de packages die altijd aanwezig zijn (zoals `base` en `containers`). Wil je in een losse REPL-sessie een package zoals `Yampa` gebruiken zonder een volledig Cabal-project op te zetten, dan maak je het package expliciet beschikbaar met `:set -package`:
 
 ```haskell
--- .ghci --- project settings
+:set -package Yampa
+```
 
--- Custom prompt showing the current module
+GHCi laadt dan de gecompileerde library van dat package en stelt alle modules ervan beschikbaar voor import. Dit werkt alleen als het package geïnstalleerd is in je globale Cabal store (via `cabal install --lib Yampa`). Binnen een Cabal-project (`cabal repl`) is dit niet nodig: Cabal regelt zelf welke packages beschikbaar zijn op basis van je `.cabal`-bestand.
+
+Je kunt dit ook in je `.ghci`-bestand zetten zodat het package automatisch beschikbaar is bij elke sessie in die directory:
+
+```haskell
+-- .ghci
+:set -package Yampa
+:set -package stm
+```
+
+---
+
+## Modules importeren met `:module`
+
+Nadat een package geladen is, gebruik je gewone `import`-statements om specifieke modules in scope te brengen. Een alternatief is het `:module`-commando (afgekorte versie: `:m`). Met `:module + ...` voeg je modules toe aan de huidige scope zonder de bestaande imports te wissen. Met `:module - ...` verwijder je ze weer:
+
+```haskell
+-- Voeg FRP.Yampa toe aan de huidige scope
+:module + FRP.Yampa
+
+-- Equivalent met import (meer Haskell-idiomatisch)
+import FRP.Yampa
+
+-- Meerdere modules tegelijk toevoegen
+:module + FRP.Yampa Control.Concurrent.STM.TQueue
+
+-- Alle zelfgevoegde modules verwijderen en terugkeren naar Prelude
+:module
+```
+
+Het verschil tussen `:module + M` en `import M` in GHCi is subtiel: `import M` gedraagt zich als een gewone Haskell-import en wordt meegenomen bij `:reload`, terwijl `:module` de scope direct aanpast en niet persistent is na een reload. In de praktijk gebruik je `import` voor alles wat je in je `.ghci` of interactief wil vasthouden, en `:module` voor snelle tijdelijke aanpassingen.
+
+Een typische interactieve sessie voor deze cursus ziet er zo uit:
+
+```haskell
+:set -package Yampa
+import FRP.Yampa
+import Control.Concurrent.STM.TQueue
+
+-- Nu kun je direct signal functions uitproberen:
+embed (arr (*2)) (1.0, [(0.1, Nothing), (0.1, Just 3.0)])
+```
+
+---
+
+## Een praktisch projectbestand
+
+Hieronder vind je een realistisch `.ghci`-bestand dat je kunt gebruiken als startpunt voor een Haskell-project:
+
+```haskell
+-- .ghci --- projectinstellingen
+
+-- Aangepaste prompt met kleur
 :set prompt "\ESC[34m[ghci]\ESC[0m \ESC[33m%s\ESC[0m> "
 :set prompt-cont "      | "
 
--- Warnings
+-- Waarschuwingen
 :set -Wall
 :set -Wno-name-shadowing
 
--- Useful language extensions for interactive work
+-- Language extensions die handig zijn tijdens interactief werken
 :set -XOverloadedStrings
 :set -XScopedTypeVariables
+:set -XArrows
 
--- Load the project's main module
+-- Packages beschikbaar stellen (buiten cabal repl)
+:set -package Yampa
+:set -package stm
+
+-- Veelgebruikte modules in scope brengen
+import FRP.Yampa
+import Control.Concurrent.STM.TQueue
+
+-- Laad de hoofdmodule van het project
 :load Main
-
--- A helper to re-run main quickly
-let rerun = main
 ```
 
-After saving this file, simply run `ghci` from the project root and it will pick up all these settings automatically.
+Sla dit bestand op als `.ghci` in de root van je projectdirectory en start dan gewoon `ghci` op. GHCi pikt het bestand automatisch op en past alle instellingen toe vóór de prompt verschijnt.
 
 ---
 
-## User-level vs. project-level `.ghci`
+## Beveiligingsopmerking
 
-| Scope | Location | When to use |
-|---|---|---|
-| Project | `./.ghci` | Project-specific extensions, loading `Main`, custom prompts per project |
-| User | `~/.ghci` | Personal defaults: preferred prompt style, always-imported utilities |
-
-It is a good habit to keep the user-level file minimal and put project-specific settings in the project-level file. This prevents settings from one project accidentally affecting another.
+Omdat GHCi het `.ghci`-bestand automatisch uitvoert, is het belangrijk te beseffen dat dit bestand arbitraire Haskell IO-acties kan uitvoeren. Vertrouw nooit een `.ghci`-bestand van een onbekende bron. Wanneer je code downloadt van het internet of van iemand anders ontvangt, bekijk je altijd eerst het `.ghci`-bestand voordat je `ghci` in die directory opstart.
 
 ---
 
-## Security note
+## Overzicht van veelgebruikte instellingen
 
-GHCi reads and evaluates the `.ghci` file automatically. Never trust a `.ghci` file from an unknown source: it can execute arbitrary Haskell IO actions on startup (e.g. delete files, make network connections). Always inspect `.ghci` before running GHCi in a directory you did not create yourself.
-
----
-
-## Summary
-
-| Setting | Example |
+| Instelling | Voorbeeld |
 |---|---|
-| Custom prompt | `:set prompt "λ> "` |
-| Continuation prompt | `:set prompt-cont " \| "` |
-| All warnings | `:set -Wall` |
+| Aangepaste prompt | `:set prompt "λ> "` |
+| Vervolgprompt | `:set prompt-cont " \| "` |
+| Alle warnings | `:set -Wall` |
 | Language extension | `:set -XOverloadedStrings` |
-| Editor | `:set editor "code --wait"` |
-| Auto-load module | `:load Main` |
+| Package beschikbaar stellen | `:set -package Yampa` |
+| Module toevoegen aan scope | `:module + FRP.Yampa` |
+| Module laden | `:load Main` |
+| Module importeren | `import Data.List (sort)` |

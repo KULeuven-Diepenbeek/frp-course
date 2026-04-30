@@ -1,226 +1,169 @@
----
-title: "I/O Programming in Haskell"
+﻿---
+title: "I/O programmeren in Haskell"
 weight: 1
 draft: false
 ---
 
-## The `IO` type
+## Het `IO`-type
 
-Haskell is a **pure** language: a function with type `a -> b` cannot have side effects. I/O (reading from stdin, writing to stdout, reading files, …) is a side effect. Haskell handles this with the `IO` type.
+Haskell is een **pure** taal: een functie met type `a -> b` heeft geen neveneffecten. Ze mag geen invoer lezen, geen uitvoer schrijven, geen bestanden openen en geen global state aanpassen. Dit is een fundamentele eigenschap van Haskell die correctheidsredenering en testbaarheid sterk vereenvoudigt. Toch moeten zinvolle programma's natuurlijk wel iets kunnen uitvoeren. Haskell lost dit op met het `IO`-type.
 
-A value of type `IO a` is an **action** that, when executed, performs some side effects and produces a result of type `a`. No side effect happens until the runtime executes the action. The Haskell runtime runs exactly one action: `main`.
+Een waarde van het type `IO a` is een **actie**: een beschrijving van berekeningen met neveneffecten die, wanneer uitgevoerd, een resultaat van type `a` oplevert. De cruciale nuance is dat een waarde van type `IO a` op zichzelf niets *doet* — ze beschrijft enkel wat er zou moeten gebeuren. De Haskell-runtime voert precies één actie uit: de actie die aan `main` gebonden is. Alle andere I/O-acties worden via `main` aangeroepen.
 
 ```haskell
 main :: IO ()
-main = putStrLn "Hello, world!"
+main = putStrLn "Hallo, wereld!"
 ```
 
-`IO ()` means: an action that performs side effects and returns the unit value `()` (nothing useful).
+Het type `IO ()` betekent: een actie die neveneffecten heeft en als resultaat de eenheidwaarde `()` retourneert (niets nuttig). Je kunt `IO` beschouwen als een container die de neveneffect-informatie bijhoudt, en via het type-systeem weet de compiler altijd of een functie neveneffecten kan hebben of niet.
 
 ---
 
-## `do` notation
+## `do`-notatie
 
-The `do` block is syntactic sugar for chaining `IO` actions with the bind operator `>>=`. It reads like imperative code while remaining fully pure.
+Op zichzelf beschrijven `IO`-waarden slechts één actie. Om meerdere acties te combineren tot een sequentie, gebruik je `do`-notatie. `do` is syntactische suiker voor de bind-operator `>>=` van de monade, maar het leest als imperatieve code. Elke regel in een `do`-blok beschrijft één stap in de uitvoering.
 
 ```haskell
 main :: IO ()
 main = do
-  putStr "Enter your name: "
-  name <- getLine            -- bind the result of getLine to `name`
-  putStrLn ("Hello, " ++ name ++ "!")
+  putStr "Geef je naam in: "
+  naam <- getLine
+  putStrLn ("Hallo, " ++ naam ++ "!")
 ```
 
-Rules for `do` notation:
+In dit voorbeeld wordt `getLine` uitgevoerd, en het resultaat — de ingetypte string — wordt gebonden aan de naam `naam` via de `<-`-operator. Let op het verschil met een gewone `let`-binding: `<-` haalt een waarde uit een `IO`-actie, terwijl `let` een puur berekend resultaat bindt zonder neveneffecten.
 
-| Expression | Meaning |
-|---|---|
-| `action` | Execute `action`, discard the result |
-| `x <- action` | Execute `action`, bind the result to `x` |
-| `let x = expr` | Pure binding, no side effect |
-| `return v` | Wrap a pure value `v` in `IO` without any effect |
+De regels in een `do`-blok volgen een vaste structuur. Acties die enkel uitgevoerd worden voor hun neveneffect (zoals `putStrLn`) staan op een eigen regel zonder binding. Acties waarvan je de resultaatwaarde verder wil gebruiken, bind je met `<-`. Pure berekeningen die geen I/O vereisen bind je met `let`.
+
+```haskell
+main :: IO ()
+main = do
+  let begroeting = "Hallo"          -- puur, geen I/O
+  naam <- getLine                   -- I/O: resultaat binden
+  putStrLn (begroeting ++ ", " ++ naam ++ "!")  -- I/O: neveneffect, geen binding
+```
 
 ---
 
-## Standard I/O functions
+## Standaard I/O-functies
 
-### Output
-
-```haskell
-putStr   :: String -> IO ()   -- print without a newline
-putStrLn :: String -> IO ()   -- print with a newline
-print    :: Show a => a -> IO ()  -- print any Show-able value (adds quotes for strings)
-```
-
-### Input
+De module `System.IO` (deels automatisch beschikbaar via `Prelude`) biedt de basisprimitieven voor invoer en uitvoer. Voor uitvoer gebruik je `putStr` om te schrijven zonder regelafbreking, `putStrLn` om te schrijven met een afsluitende newline, en `print` om willekeurige waarden met een `Show`-instantie af te drukken. `print` is equivalent aan `putStrLn . show`, maar voegt aanhalingstekens toe rond strings:
 
 ```haskell
-getLine  :: IO String          -- read one line from stdin
-getChar  :: IO Char            -- read one character
-getContents :: IO String       -- read all of stdin lazily
+putStr   :: String -> IO ()
+putStrLn :: String -> IO ()
+print    :: Show a => a -> IO ()
 ```
 
-### File I/O
+Voor invoer gebruik je `getLine` om een volledige regel te lezen, `getChar` voor één karakter, of `readLn` om een regel te lezen en meteen te parseren naar het gewenste type. Met `readLn` kan je zo een getal direct inlezen:
+
+```haskell
+main :: IO ()
+main = do
+  putStr "Geef een getal: "
+  n <- readLn :: IO Int
+  putStrLn ("Het dubbele is: " ++ show (n * 2))
+```
+
+---
+
+## Bestandsoperaties
+
+Haskell biedt handige hoog-niveau functies voor eenvoudige bestandsoperaties. `readFile` leest de volledige inhoud van een bestand als een `String`, `writeFile` schrijft een `String` naar een bestand (overschrijft bestaande inhoud) en `appendFile` voegt tekst toe aan het einde van een bestand. Voor meer controle gebruik je `withFile` met een bestandshandle:
 
 ```haskell
 import System.IO
 
-readFile  :: FilePath -> IO String
-writeFile :: FilePath -> String -> IO ()
-appendFile :: FilePath -> String -> IO ()
-
--- Lower-level handles for more control
-withFile :: FilePath -> IOMode -> (Handle -> IO r) -> IO r
-```
-
-Example — read a file and count its lines:
-
-```haskell
-import System.IO
+aantalRegels :: FilePath -> IO Int
+aantalRegels pad = do
+  inhoud <- readFile pad
+  return (length (lines inhoud))
 
 main :: IO ()
 main = do
-  contents <- readFile "data.txt"
-  let lineCount = length (lines contents)
-  putStrLn ("Line count: " ++ show lineCount)
+  n <- aantalRegels "data.txt"
+  putStrLn ("Aantal regels: " ++ show n)
+```
+
+Merk op dat `readFile` **lui** is: de inhoud wordt pas ingelezen wanneer die effectief gebruikt wordt. Dit kan problemen geven als je een bestand wil overschrijven na het te lezen. In die gevallen is het beter om `withFile` te gebruiken met expliciete handles, of `Data.Text.IO` voor strikte tekstverwerking.
+
+---
+
+## Herhaling in I/O
+
+Haskell heeft geen imperatieve `for`- of `while`-loops, maar herhaling in I/O-context wordt uitgedrukt via recursie of via combinatoren uit `Control.Monad`. De functie `forM_` itereert over een lijst en voert een I/O-actie uit voor elk element:
+
+```haskell
+import Control.Monad (forM_, forever, when, unless)
+
+main :: IO ()
+main = forM_ [1..5] $ \i ->
+  putStrLn ("Item " ++ show i)
+```
+
+Voor een oneindige loop gebruik je `forever`, dat een actie herhaalt tot het programma gestopt wordt:
+
+```haskell
+echoProgramma :: IO ()
+echoProgramma = forever $ do
+  regel <- getLine
+  putStrLn ("Je schreef: " ++ regel)
+```
+
+De functies `when` en `unless` zijn handig om een actie conditioneel uit te voeren. Ze nemen een `Bool` als eerste argument en voeren de actie enkel uit als die `Bool` respectievelijk `True` of `False` is. Zonder `when` zou je steeds een `if`-expressie nodig hebben met een lege `else`-tak:
+
+```haskell
+main :: IO ()
+main = do
+  invoer <- readLn :: IO Int
+  when   (invoer > 0) $ putStrLn "Positief getal"
+  unless (invoer > 0) $ putStrLn "Nul of negatief"
 ```
 
 ---
 
-## `return` and `pure`
+## Resultaten verzamelen
 
-`return` (or its synonym `pure`) lifts a pure value into the `IO` monad. It does **not** stop execution (unlike `return` in C or Java).
-
-```haskell
-greet :: String -> IO String
-greet name = return ("Hello, " ++ name)
-
-main :: IO ()
-main = do
-  msg <- greet "Alice"
-  putStrLn msg
-```
-
----
-
-## Looping with `IO`
-
-Haskell does not have `for` or `while` loops. Looping is expressed with recursion or with combinators from `Control.Monad`.
-
-### Recursive loop
-
-```haskell
-countDown :: Int -> IO ()
-countDown 0 = putStrLn "Blast off!"
-countDown n = do
-  print n
-  countDown (n - 1)
-```
-
-### `forM_` — iterating over a list
-
-```haskell
-import Control.Monad (forM_)
-
-main :: IO ()
-main = forM_ [1..5] $ \i -> do
-  putStrLn ("Item: " ++ show i)
-```
-
-### `forever` — infinite loop
-
-```haskell
-import Control.Monad (forever)
-
-echoLoop :: IO ()
-echoLoop = forever $ do
-  line <- getLine
-  putStrLn ("You said: " ++ line)
-```
-
-### `when` and `unless`
-
-```haskell
-import Control.Monad (when, unless)
-
-main :: IO ()
-main = do
-  x <- readLn :: IO Int
-  when (x > 0) $ putStrLn "Positive"
-  unless (x > 0) $ putStrLn "Non-positive"
-```
-
----
-
-## Sequencing actions
-
-Sometimes you want to collect results from a list of `IO` actions into a list:
+Soms wil je niet alleen neveneffecten uitvoeren, maar ook de resultaten collecteren. `replicateM` voert een actie een bepaald aantal keren uit en verzamelt de resultaten in een lijst. `mapM` doet hetzelfde voor een lijst van waarden:
 
 ```haskell
 import Control.Monad (replicateM)
 
--- Ask for n numbers and return them as a list
-readNumbers :: Int -> IO [Int]
-readNumbers n = replicateM n readLn
-```
-
-Or sequence a list of actions discarding results:
-
-```haskell
-import Control.Monad (mapM_)
-
-printAll :: [String] -> IO ()
-printAll = mapM_ putStrLn
+leesGetallen :: Int -> IO [Int]
+leesGetallen n = replicateM n (do
+  putStr "Getal: "
+  readLn)
 ```
 
 ---
 
-## Exception handling
+## `return` en `pure`
 
-Use `Control.Exception` to catch runtime errors:
+De functie `return` (synoniem: `pure`) is een manier om een gewone waarde in de `IO`-monade te tillen, zonder enig neveneffect. Ze *stopt* de uitvoering niet — dat is een veelgemaakte verwarring voor programmeurs die komen van talen als C of Java. In Haskell is `return 42` gewoon een `IO`-actie die bij uitvoering de waarde `42` produceert zonder iets te doen:
+
+```haskell
+begroet :: String -> IO String
+begroet naam = return ("Hallo, " ++ naam)
+
+main :: IO ()
+main = do
+  bericht <- begroet "Alice"
+  putStrLn bericht
+```
+
+---
+
+## Foutafhandeling
+
+Voor het opvangen van runtime-fouten biedt `Control.Exception` de `try`-functie. Die probeert een `IO`-actie uit te voeren en geeft een `Either` terug: `Left fout` als er een uitzondering optrad, `Right waarde` als alles goed verliep:
 
 ```haskell
 import Control.Exception
 
-safeDivide :: Int -> Int -> IO Int
-safeDivide _ 0 = throwIO (userError "Division by zero")
-safeDivide x y = return (x `div` y)
-
 main :: IO ()
 main = do
-  result <- try (safeDivide 10 0) :: IO (Either SomeException Int)
-  case result of
-    Left err  -> putStrLn ("Error: " ++ show err)
-    Right val -> print val
+  resultaat <- try (readFile "bestaat-niet.txt") :: IO (Either SomeException String)
+  case resultaat of
+    Left fout    -> putStrLn ("Fout: " ++ show fout)
+    Right inhoud -> putStrLn ("Gelezen: " ++ take 100 inhoud)
 ```
-
----
-
-## Interacting with the command line
-
-```haskell
-import System.Environment (getArgs, getProgName)
-
-main :: IO ()
-main = do
-  progName <- getProgName
-  args     <- getArgs
-  putStrLn ("Program: " ++ progName)
-  putStrLn ("Arguments: " ++ show args)
-```
-
----
-
-## Summary
-
-| Concept | Key function/type |
-|---|---|
-| I/O action | `IO a` |
-| Print to terminal | `putStr`, `putStrLn`, `print` |
-| Read from terminal | `getLine`, `getChar`, `readLn` |
-| File operations | `readFile`, `writeFile`, `withFile` |
-| Wrap pure value | `return` / `pure` |
-| Iterate list | `forM_`, `mapM_` |
-| Infinite loop | `forever` |
-| Conditional action | `when`, `unless` |
-| Collect results | `replicateM`, `mapM` |

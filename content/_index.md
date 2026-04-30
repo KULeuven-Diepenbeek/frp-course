@@ -1,38 +1,35 @@
----
+﻿---
 title: "Index"
 ---
 
 # Functional Reactive Programming
 
-Academic year 2025–2026.
+Academiejaar 2025–2026.
 
-## Overview
+## Overzicht
 
-This course builds on your existing knowledge of Haskell and functional programming to introduce:
+Deze cursus bouwt verder op je bestaande kennis van Haskell en functioneel programmeren. We vertrekken vanuit de veronderstelling dat je de basisconcepten van Haskell al beheerst — syntaxis, types, typeklassen en hogere-ordefuncties — en verdiepen ons in de meer praktische en geavanceerde kant van het werken met Haskell, en vervolgens in een krachtig programmeerparadigma voor het modelleren van time-dependent systemen (Functional Reactive Programming met Yampa).
 
-1. **Haskell tooling** — configuring GHCi and using Cabal as a build system and dependency manager.
-2. **I/O and state in Haskell** — working with the `IO` monad, mutable references, global state, and concurrent queues.
-3. **Functional Reactive Programming (FRP)** — the paradigm: what it is, why it exists, and how it models time-varying values and event streams.
-4. **Yampa** — a mature, arrow-based FRP library for Haskell, from first signals to advanced switching patterns.
+De cursus is opgedeeld in vier grote onderdelen. In het eerste deel leer je werken met de Haskell-ontwikkelomgeving: hoe je GHCi configureert via een `.ghci`-bestand, en hoe je met Cabal aan de slag gaat als build-tool en dependency manager. In het tweede deel leer je hoe je invoer/uitvoer, mutable state en concurrentie aanpakt in Haskell — concepten die in puur functionele talen bijzonder zijn georganiseerd. Het derde deel introduceert het paradigma van Functioneel Reactief Programmeren: wat het is, waar het vandaan komt, en welk probleem het oplost. Daarna duiken we diep in **Yampa**, een volwassen FRP-library voor Haskell, van de eerste stappen tot geavanceerde switching-patronen.
 
-## Prerequisites
+## Vereiste voorkennis
 
-You are expected to already know:
+Je wordt verwacht al vertrouwd te zijn met:
 
-- Haskell syntax, types, type classes, and higher-order functions.
-- Basic functional programming concepts (map, filter, fold, currying, …).
+- Haskell-syntaxis, types, typeklassen en hogere-ordefuncties.
+- Basisconcepten van functioneel programmeren zoals `map`, `filter`, `fold`, curryen en patroonmatching.
 
-If you need a refresher visit the Haskell learning resources in the Extra section.
+Als je je kennis wilt opfrissen, vind je nuttige bronnen in het Extra-onderdeel van deze cursus.
 
-## Course structure
+## Cursusindeling
 
-| # | Section | Topics |
+| # | Onderdeel | Onderwerpen |
 |---|---------|--------|
-| 1 | Haskell Tools | `.ghci` configuration, Cabal projects |
-| 2 | I/O & State | `IO` monad, `IORef`, `MVar`, `TQueue` |
-| 3 | FRP Concepts | Time-varying values, event streams, FRP paradigm |
-| 4 | Yampa — Basics | Signal functions, `SF a b`, `arr`, `>>>` |
-| 5 | Yampa — Events | `Event`, `edge`, `never`, `now` |
-| 6 | Yampa — Running | `reactimate`, game loops |
+| 1 | Haskell Tools | `.ghci`-configuratie, Cabal-projecten |
+| 2 | I/O & State | `IO`-monade, `IORef`, `MVar`, `TQueue` |
+| 3 | FRP-concepten | Tijdsvariërende waarden, eventstromen, het FRP-paradigma |
+| 4 | Yampa — Basisbegrippen | Signalfuncties, `SF a b`, `arr`, `>>>` |
+| 5 | Yampa — Events | `Event`, `edge`, `never`, `now`, `after` |
+| 6 | Yampa — Uitvoering | `reactimate`, game loops, koppeling met I/O |
 | 7 | Yampa — Switches | `switch`, `dSwitch`, `rSwitch`, `kSwitch` |
-| 8 | Yampa — Advanced | State machines, `dpSwitch`, `par`, `pSwitch` |
+| 8 | Yampa — Geavanceerd | State machines, `dpSwitch`, parallelle netwerken |

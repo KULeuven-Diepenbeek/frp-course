@@ -1,223 +1,150 @@
----
-title: "Running Yampa — reactimate"
+﻿---
+title: "Reactimate"
 weight: 3
 draft: false
 ---
 
-## The simulation loop
+## Yampa uitvoeren: het `reactimate`-patroon
 
-A signal function `SF a b` is a description. To actually **run** it, you need:
+Een signal function beschrijft *wat* er berekend moet worden, maar niet *wanneer* of *hoe* de invoer binnenkomt en de uitvoer verwerkt wordt. Die koppeling aan de echte wereld — een klok, een invoerbron, een renderer — levert Yampa's functie **`reactimate`**. Het is de standaardmanier om een Yampa-simulatie als een echte loop te draaien.
 
-1. A way to **sense** the current input (e.g. read keyboard state, sample a sensor).
-2. A way to **actuate** on the output (e.g. draw to screen, send a network packet).
-3. A timing source to know how much time has passed since the last step.
-
-Yampa's `reactimate` function wires these three things together into a continuous simulation loop.
-
----
-
-## `reactimate`
+De signatuur van `reactimate` ziet er als volgt uit:
 
 ```haskell
-reactimate :: IO a                        -- init: produce the first input
-           -> (Bool -> IO (DTime, Maybe a))  -- sense: produce subsequent inputs
-           -> (Bool -> b -> IO Bool)         -- actuate: consume output
-           -> SF a b                         -- the signal function to run
-           -> IO ()
+reactimate
+  :: IO a                          -- initialisatie: eerste invoerwaarde
+  -> (Bool -> IO (DTime, Maybe a)) -- sense: haal de volgende invoer op
+  -> (Bool -> b -> IO Bool)        -- actuate: verwerk de uitvoer
+  -> SF a b                        -- de signal function
+  -> IO ()
 ```
 
-### Parameters
-
-| Parameter | Type | Description |
-|---|---|---|
-| `init` | `IO a` | Called once at the start. Returns the first input sample. |
-| `sense` | `Bool -> IO (DTime, Maybe a)` | Called each step. Returns elapsed time and optionally a new input. If `Nothing`, the previous input is reused. |
-| `actuate` | `Bool -> b -> IO Bool` | Called with each output. Returns `True` to stop the loop, `False` to continue. |
-| `sf` | `SF a b` | The signal function to drive. |
-
-The `Bool` passed to `sense` and `actuate` is `True` on the very first call (can be used for initialisation logic).
+`reactimate` is een oneindige loop. Bij elke iteratie:
+1. roept hij **sense** aan om de elapsed time (`DTime`, in seconden) en optioneel een nieuwe invoerwaarde op te halen;
+2. voert hij de signal function uit voor die time step;
+3. roept hij **actuate** aan met het resultaat;
+4. stopt hij als **actuate** `True` teruggeeft.
 
 ---
 
-## Minimal example — a simple timer
+## De drie callbacks
+
+### Initialisatiefunctie
+
+De eerste parameter is een `IO a`-actie die de **beginwaarde** van de invoer produceert. Deze wordt precies één keer uitgevoerd vóór de loop begint:
 
 ```haskell
-import FRP.Yampa
-import Control.Concurrent (threadDelay)
-import Data.IORef
-import Data.Time.Clock
+initialiseer :: IO GameInvoer
+initialiseer = do
+  putStrLn "Spel gestart"
+  return beginInvoer
+```
 
--- Signal function: output = total elapsed time in seconds
-timerSF :: SF () Double
-timerSF = time
+### Sense-callback
 
-main :: IO ()
-main = do
-  lastTime <- newIORef =<< getCurrentTime
+De sense-callback heeft type `Bool -> IO (DTime, Maybe a)`. De `Bool`-parameter geeft aan of de vorige actuate-stap de uitvoer als "gewijzigd" beschouwde (dit wordt zelden gebruikt). De callback retourneert de elapsed time sinds de vorige stap (in seconden) en een optionele nieuwe invoerwaarde — `Nothing` betekent dat de vorige invoer ongewijzigd blijft:
 
-  reactimate
-    (return ())                              -- init: unit input
+```haskell
+sense :: Bool -> IO (DTime, Maybe GameInvoer)
+sense _ = do
+  nu       <- getCurrentTime
+  invoer   <- leesInvoer
+  return (tijdstap, Just invoer)
+```
 
-    (\_ -> do                                -- sense: measure elapsed time
-        now  <- getCurrentTime
-        prev <- readIORef lastTime
-        writeIORef lastTime now
-        let dt = realToFrac (diffUTCTime now prev) :: DTime
-        return (dt, Nothing))                -- reuse previous input ()
+In de praktijk meet je vaak de system time en bereken je het verschil met de vorige frame. Zorg ervoor dat `DTime` altijd strikt positief is: een time step van nul kan problemen geven bij sommige signal functions.
 
-    (\_ t -> do                              -- actuate: print elapsed time
-        putStrLn ("t = " ++ show (round t :: Int) ++ "s")
-        return (t >= 5.0))                   -- stop after 5 seconds
+### Actuate-callback
 
-    timerSF
+De actuate-callback heeft type `Bool -> b -> IO Bool`. De eerste `Bool`-parameter geeft aan of de uitvoer veranderd is ten opzichte van de vorige stap (Yampa kan dit optimaliseren). De `b`-waarde is de uitvoer van de signal function. De teruggegeven `Bool` geeft aan of de loop moet stoppen (`True` = stop):
+
+```haskell
+actuate :: Bool -> GameUitvoer -> IO Bool
+actuate _ uitvoer = do
+  renderFrame uitvoer
+  return (spelVoorbij uitvoer)
 ```
 
 ---
 
-## Controlling the loop frequency
+## `reactimate` met een `TQueue` voor invoer
 
-`reactimate` calls `sense` and `actuate` as fast as possible. To run at a fixed frame rate, sleep in the `sense` callback:
-
-```haskell
-import Control.Concurrent (threadDelay)
-
-senseWithRate :: Int -> IORef UTCTime -> Bool -> IO (DTime, Maybe ())
-senseWithRate fps lastRef _ = do
-  threadDelay (1000000 `div` fps)   -- sleep for one frame duration
-  now  <- getCurrentTime
-  prev <- readIORef lastRef
-  writeIORef lastRef now
-  return (realToFrac (diffUTCTime now prev), Nothing)
-```
-
----
-
-## Integrating with a `TQueue` for external input
-
-In a real application (game, robotics, GUI), inputs come from external sources (keyboard, sensors). The clean pattern is:
-
-1. Run an **input thread** that writes events to a `TQueue`.
-2. In the `sense` callback, **drain the queue** to collect all events since the last step.
+In echte toepassingen komt invoer (toetsaanslagen, muisbewegingen, netwerkberichten) uit een aparte thread. De aanbevolen aanpak is een `TQueue` gebruiken als buffer: de invoerthread schrijft events naar de queue, de sense-callback leest ze non-blokkerend uit. Dit ontkoppelt de timing van invoerverwerking van de timing van de simulatiestap volledig:
 
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
-import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Concurrent.STM.TQueue
+import Control.Concurrent (forkIO, threadDelay)
 import Data.Time.Clock
-import Data.IORef
 
-data InputEvent = KeyW | KeyS | Quit deriving (Show, Eq)
+data InvoerEvent = Pijl Int | Stoppen deriving (Show, Eq)
+data GameToestand = GameToestand { positie :: Int, gestopt :: Bool }
 
--- Fake input thread: sends a few events and then Quit
-inputThread :: TQueue InputEvent -> IO ()
-inputThread q = do
-  threadDelay 500000
-  atomically $ writeTQueue q KeyW
-  threadDelay 500000
-  atomically $ writeTQueue q KeyS
-  threadDelay 1000000
-  atomically $ writeTQueue q Quit
+leegmaken :: TQueue a -> IO [a]
+leegmaken q = atomically $ do
+  first <- tryReadTQueue q
+  case first of
+    Nothing -> return []
+    Just v  -> do
+      rest <- flushTQueue q
+      return (v : rest)
 
--- Drain all pending events from the queue (non-blocking)
-drainQueue :: TQueue a -> IO [a]
-drainQueue q = go []
-  where
-    go acc = do
-      mVal <- atomically (tryReadTQueue q)
-      case mVal of
-        Nothing -> return (reverse acc)
-        Just v  -> go (v : acc)
-
--- Signal function: count W keypresses
-gameLogic :: SF [InputEvent] Int
-gameLogic = proc events -> do
-  let wCount = length (filter (== KeyW) events)
-  total <- accumHold 0 -< if wCount > 0 then Event (+wCount) else NoEvent
-  returnA -< total
+gameSF :: SF [InvoerEvent] GameToestand
+gameSF = proc events -> do
+  let delta = sum [ d | Pijl d <- events ]
+  pos <- accumHold 0 (+) -< if null events then NoEvent else Event delta
+  let stop = any (== Stoppen) events
+  returnA -< GameToestand pos stop
 
 main :: IO ()
 main = do
-  inputQ   <- newTQueueIO
-  lastTime <- newIORef =<< getCurrentTime
-  forkIO (inputThread inputQ)
-
+  wachtrij <- newTQueueIO
+  forkIO $ do
+    threadDelay 300000
+    atomically $ writeTQueue wachtrij (Pijl 1)
+    threadDelay 300000
+    atomically $ writeTQueue wachtrij (Pijl 2)
+    threadDelay 300000
+    atomically $ writeTQueue wachtrij Stoppen
+  startTijd <- getCurrentTime
+  tijdRef   <- newIORef startTijd
   reactimate
-    (drainQueue inputQ)          -- init: collect any events already queued
-
-    (\_ -> do                    -- sense
-        threadDelay 16667        -- ~60 FPS
-        now    <- getCurrentTime
-        prev   <- readIORef lastTime
-        writeIORef lastTime now
-        events <- drainQueue inputQ
-        return (realToFrac (diffUTCTime now prev), Just events))
-
-    (\_ wPresses -> do           -- actuate
-        putStrLn ("W presses: " ++ show wPresses)
-        -- Check if Quit was received
-        return False)            -- simplified: never quit from here
-
-    gameLogic
+    (return [])
+    (\_ -> do
+        nu       <- getCurrentTime
+        vorige   <- readIORef tijdRef
+        writeIORef tijdRef nu
+        events   <- leegmaken wachtrij
+        return (realToFrac (diffUTCTime nu vorige), Just events)
+    )
+    (\_ uitvoer -> do
+        print uitvoer
+        return (gestopt uitvoer)
+    )
+    gameSF
 ```
 
-> In a production game you would check the event list for `Quit` inside the actuate callback and return `True` when found.
+Dit volledige voorbeeld toont het volledige reactimate-patroon: een aparte invoerthread, een IORef voor tijdmeting, een TQueue als buffer, en een game signal function.
 
 ---
 
-## `reactimateB` — returning a behaviour
+## `embed` voor testen en batch-simulatie
+
+Wanneer je geen echte loop nodig hebt maar een signal function wil uitvoeren over een vooraf bepaalde reeks invoerwaarden — voor unit tests of batchsimulaties — gebruik je `embed`:
 
 ```haskell
-reactimateB :: SF a b -> IO (a -> IO b)
+-- embed :: SF a b -> (a, [(DTime, Maybe a)]) -> [b]
+testResultaten :: [GameToestand]
+testResultaten = embed gameSF
+  ( []
+  , [ (0.1, Just [Pijl 1])
+    , (0.1, Nothing)
+    , (0.1, Just [Pijl 3])
+    , (0.1, Just [Stoppen])
+    ]
+  )
 ```
 
-(Note: this is `reactimateB` from some Yampa versions / wrappers, not always available.) More commonly, a variant using `reactimate` is standard.
-
----
-
-## `embed` — offline testing
-
-For testing without a real event loop, use `embed`:
-
-```haskell
-embed :: SF a b -> (a, [(DTime, Maybe a)]) -> [b]
-```
-
-This runs the `SF` on a fixed list of (time-delta, input) pairs and returns all outputs.
-
-```haskell
-import FRP.Yampa
-
-main :: IO ()
-main = do
-  let result = embed (arr (*2) >>> integral)
-                     (1.0, replicate 10 (0.1, Nothing))
-  print result
-```
-
----
-
-## `reactimateNSteps` — running for N steps
-
-If you want to run a signal function for a fixed number of steps (useful in simulations or tests):
-
-```haskell
-import FRP.Yampa
-
-simulateNSteps :: Int -> DTime -> a -> SF a b -> [b]
-simulateNSteps n dt initInput sf =
-  embed sf (initInput, replicate n (dt, Nothing))
-```
-
----
-
-## Summary
-
-| Function | Purpose |
-|---|---|
-| `reactimate init sense actuate sf` | Run SF in a continuous I/O loop |
-| `sense :: Bool -> IO (DTime, Maybe a)` | Measure elapsed time and optionally new input |
-| `actuate :: Bool -> b -> IO Bool` | Consume output, return `True` to stop |
-| `embed sf (i0, steps)` | Run SF offline on fixed input list |
-| `TQueue` + `drainQueue` | Decouple input threads from the simulation step |
+`embed` is volledig puur: geen IO, geen side effects, ideaal voor property-based tests met QuickCheck.

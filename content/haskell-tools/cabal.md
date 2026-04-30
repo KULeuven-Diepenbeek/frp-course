@@ -1,84 +1,82 @@
----
-title: "Cabal — Build Tool & Dependency Manager"
+﻿---
+title: "Cabal: Build-tool en Dependency Manager"
 weight: 2
 draft: false
 ---
 
-## What is Cabal?
+## Wat is Cabal?
 
-**Cabal** (Common Architecture for Building Applications and Libraries) is the standard build system and package manager for Haskell. It serves two roles:
+**Cabal** (Common Architecture for Building Applications and Libraries) is het standaard build-systeem en de package manager voor Haskell. Het vervult twee rollen tegelijkertijd: enerzijds is het een **build-tool** die weet hoe je Haskell-modules compileert, uitvoerbare bestanden linkt en tests uitvoert; anderzijds is het een **dependency manager** die de libraries die je project nodig heeft automatisch ophaalt van [Hackage](https://hackage.haskell.org/), de centrale Haskell package repository, en ze bouwt voordat je eigen project gecompileerd wordt.
 
-1. **Build tool**: it knows how to compile your modules, link executables, and run tests.
-2. **Dependency manager**: it resolves, downloads, and builds the Haskell packages your project needs from [Hackage](https://hackage.haskell.org/), the central Haskell package repository.
-
-Modern Cabal (>= 3.0) uses a **per-project dependency store** (inside `~/.cabal/store`) so that different projects can use different versions of the same library without conflict.
+Moderne Cabal (versie 3.0 en hoger) werkt met een **per-project dependency store** in `~/.cabal/store`. Dit betekent dat verschillende projecten op je machine zonder conflicten verschillende versies van dezelfde library kunnen gebruiken. Je hoeft nooit manueel versieconflicten op te lossen zoals dat bij sommige andere ecosystemen het geval is.
 
 ---
 
-## Installing Cabal
+## Cabal installeren
 
-Cabal is distributed with the [GHCup](https://www.haskell.org/ghcup/) toolchain installer. Install it with:
+Cabal wordt meegeleverd met de [GHCup](https://www.haskell.org/ghcup/) toolchain-installer, de aanbevolen manier om Haskell op je machine te zetten. Eenmaal GHCup geïnstalleerd, installeer je de nieuwste versie van Cabal met:
 
 ```bash
 ghcup install cabal latest
 ```
 
-Verify the installation:
+Controleer daarna of de installatie gelukt is:
 
 ```bash
 cabal --version
-# cabal-install version 3.12.x.x
 ```
+
+Dit zou iets moeten uitvoeren als `cabal-install version 3.12.x.x`. Als dit werkt, ben je klaar om je eerste project aan te maken.
 
 ---
 
-## Creating a new project
+## Een nieuw project aanmaken
+
+Cabal biedt een interactieve wizard om snel een nieuw project op te zetten. Navigeer naar de directory waar je het project wil aanmaken en voer uit:
 
 ```bash
 cabal init --interactive
 ```
 
-This wizard asks for:
-- The project name.
-- The type (library, executable, or both).
-- The GHC version to target.
-- The license.
-
-The result is a directory structure like:
+De wizard stelt je een reeks vragen: de projectnaam, het type (uitvoerbaar programma, bibliotheek of beide), welke GHC-versie je wil gebruiken en welke licentie je project krijgt. Na het doorlopen van de wizard heb je een basisstructuur:
 
 ```
-my-project/
-  my-project.cabal      -- project description file
+mijn-project/
+  mijn-project.cabal      -- projectbeschrijvingsbestand
   app/
-    Main.hs             -- entry point for the executable
-  src/                  -- library source (if library was chosen)
+    Main.hs               -- ingangspunt voor het uitvoerbare programma
+  src/                    -- broncode voor de library (indien van toepassing)
   CHANGELOG.md
 ```
 
 ---
 
-## The `.cabal` file
+## Het `.cabal`-bestand
 
-The `.cabal` file is the heart of a Cabal project. It declares everything: metadata, source directories, language extensions, dependencies, and build targets.
+Het `.cabal`-bestand is het hart van elk Cabal-project. Het beschrijft de metadata van de package, de source directory's, de language extensions, de dependencies en de build-targets. Het is een declaratief bestand: je beschrijft *wat* je project is en *waarvan* het afhangt, en Cabal lost de rest op.
 
-### Package-level metadata
+### Package metadata
+
+Bovenaan het bestand staat de algemene informatie over het package:
 
 ```cabal
-cabal-version:      3.4
-name:               my-project
-version:            0.1.0.0
-synopsis:           A short description
-description:        A longer description of the package.
-license:            MIT
-author:             Your Name
-maintainer:         you@example.com
-build-type:         Simple
+cabal-version:  3.4
+name:           mijn-project
+version:        0.1.0.0
+synopsis:       Een korte beschrijving
+description:    Een langere beschrijving van het package.
+license:        MIT
+author:         Jouw Naam
+maintainer:     jij@voorbeeld.com
+build-type:     Simple
 ```
 
-### Declaring an executable
+### Een executable declareren
+
+De meeste projecten die we gaan maken zijn executables. Je declareert ze met het keyword `executable`:
 
 ```cabal
-executable my-project
+executable mijn-project
   main-is:          Main.hs
   hs-source-dirs:   app
   build-depends:
@@ -89,104 +87,90 @@ executable my-project
   ghc-options:      -Wall
 ```
 
-Key fields:
+De belangrijkste velden zijn: `main-is` (het `.hs`-bestand dat de `main`-functie bevat), `hs-source-dirs` (de directory's waar GHC naar bronbestanden zoekt), `build-depends` (de lijst met vereiste packages), `default-language` (de Haskell-standaard) en `ghc-options` (flags die rechtstreeks aan GHC worden doorgegeven).
 
-| Field | Purpose |
-|---|---|
-| `main-is` | The `.hs` file containing the `main` function |
-| `hs-source-dirs` | Directories where GHC looks for source files |
-| `build-depends` | List of required packages with version constraints |
-| `default-language` | Haskell standard (`Haskell2010` or `GHC2021`) |
-| `ghc-options` | Flags passed directly to GHC |
+### Een library declareren
 
-### Declaring a library
+Als je code wil schrijven die door andere projecten hergebruikt kan worden, declareer je een library:
 
 ```cabal
 library
   exposed-modules:
-      MyLib
-    , MyLib.Helpers
+      MijnLib
+    , MijnLib.Hulpfuncties
   hs-source-dirs:   src
   build-depends:
       base          ^>=4.18
   default-language: Haskell2010
 ```
 
-### Declaring tests
+Het veld `exposed-modules` somt op welke modules publiek toegankelijk zijn voor andere projecten. Modules die je niet vermeldt zijn interne implementatiedetails.
+
+### Tests declareren
+
+Goede projecten hebben tests. Je voegt ze toe als een aparte `test-suite`:
 
 ```cabal
-test-suite my-project-test
+test-suite mijn-project-test
   type:             exitcode-stdio-1.0
   main-is:          Spec.hs
   hs-source-dirs:   test
   build-depends:
       base          ^>=4.18
-    , my-project
+    , mijn-project
     , hspec         ^>=2.11
   default-language: Haskell2010
 ```
 
-### Language extensions in .cabal
+### Language extensions centraliseren
 
-Instead of adding language extensions to every source file manually, declare them once in the `.cabal` file under `default-extensions`:
+In plaats van `{-# LANGUAGE ... #-}`-pragma's bovenaan elk bronbestand te herhalen, kun je language extensions eenmalig declareren in het `.cabal`-bestand via `default-extensions`. Dit geldt dan voor alle modules in dat build-target:
 
 ```cabal
-executable my-project
+executable mijn-project
   ...
   default-extensions:
       OverloadedStrings
     , ScopedTypeVariables
-    , LambdaCase
+    , Arrows
 ```
 
 ---
 
-## Version constraints
+## Versieconstraints
 
-Cabal uses a concise syntax for specifying compatible package versions:
+Cabal gebruikt een beknopte syntaxis om aan te geven welke versies van een afhankelijkheid compatibel zijn. De aanbevolen operator is het dakje `^>=`, ook wel de **caret operator** genoemd. Deze drukt uit "minimaal deze versie en elke compatibele minorversie erna", wat in de praktijk betekent: dezelfde hoofdversie, hogere patchversies zijn toegestaan.
 
-| Constraint | Meaning |
-|---|---|
-| `== 2.0` | Exactly version 2.0 |
-| `>= 2.0` | 2.0 or newer |
-| `>= 2.0 && < 3.0` | Any 2.x version |
-| `^>= 2.0` | `>= 2.0 && < 3` (the **caret operator**, most common) |
+```cabal
+build-depends:
+    base     ^>=4.18      -- versie >= 4.18 en < 5
+  , text     ^>=2.0       -- versie >= 2.0 en < 3
+  , Yampa    ^>=0.14      -- versie >= 0.14 en < 0.15 (of < 1 voor Yampa)
+```
 
-The caret operator `^>=` is the recommended choice for most dependencies. It expresses "this version or any compatible minor update".
+De caret operator is voor de meeste gevallen de beste keuze. Het is streng genoeg om onverwachte breaking changes te voorkomen, maar soepel genoeg om automatische bugfixupdates toe te staan.
 
 ---
 
-## Common Cabal commands
+## Veelgebruikte Cabal-commando's
 
-### Building and running
+Voor de dagelijkse ontwikkelcyclus gebruik je een beperkt aantal Cabal-commando's. Eerst werk je de lokale package index bij - dit is een snelle kopie van wat er op Hackage beschikbaar is. Daarna bouw je het project, draai je het of open je een interactieve sessie:
 
 ```bash
-# Build all targets in the project
+# Package index verversen (doe dit periodiek)
+cabal update
+
+# Project bouwen
 cabal build
 
-# Build and run the executable
+# Bouwen en uitvoeren
 cabal run
 
-# Run a specific executable (when multiple are defined)
-cabal run my-project -- --some-flag
-
-# Start GHCi with the project loaded
+# Interactieve GHCi-sessie met het project geladen
 cabal repl
 ```
 
-### Testing
-
-```bash
-cabal test
-```
-
-### Adding a dependency
-
-1. Open the `.cabal` file.
-2. Add the package to the `build-depends` field.
-3. Run `cabal build` — Cabal will resolve and install the new dependency automatically.
-
-Example: adding Yampa:
+Een dependency toevoegen is eenvoudig: voeg de package name toe aan het `build-depends`-veld in je `.cabal`-bestand en voer dan `cabal build` uit. Cabal detecteert de nieuwe dependency, downloadt ze van Hackage en compileert ze vóór je eigen project. Als voorbeeld, om Yampa toe te voegen:
 
 ```cabal
 build-depends:
@@ -194,112 +178,58 @@ build-depends:
   , Yampa  ^>=0.14
 ```
 
-Then:
+Zoek je een pakket maar weet je de exacte naam niet, dan kun je in de terminal zoeken of de Hackage-website raadplegen:
 
 ```bash
-cabal build
-```
-
-### Searching for packages
-
-```bash
-# List all packages matching a keyword
 cabal list yampa
-
-# Show details of a specific package
 cabal info Yampa
 ```
 
-You can also browse [https://hackage.haskell.org/](https://hackage.haskell.org/) directly.
-
-### Updating the package index
-
-Cabal keeps a local copy of the Hackage package index. Refresh it periodically to see new releases:
+Tests uitvoeren doe je met:
 
 ```bash
-cabal update
-```
-
----
-
-## `cabal.project` — multi-package workspaces
-
-For larger projects or when you want to pin everything precisely, create a `cabal.project` file in the root of your workspace:
-
-```
--- cabal.project
-packages: .
-           ../some-other-package
-
--- Pin a specific version of a dependency
-constraints: text == 2.0.2
-```
-
-This file is optional for single-package projects but becomes essential when working with multiple related packages in one workspace.
-
----
-
-## `cabal.project.freeze` — reproducible builds
-
-```bash
-cabal freeze
-```
-
-This writes a `cabal.project.freeze` file that records the exact version of every dependency (and transitive dependency) that was solved. Commit this file to version control to guarantee that every developer and every CI run uses identical dependencies.
-
----
-
-## Typical development workflow
-
-```bash
-# 1. Create the project (once)
-cabal init --interactive
-
-# 2. Update the package index (periodically)
-cabal update
-
-# 3. Add dependencies in the .cabal file, then build
-cabal build
-
-# 4. Work interactively
-cabal repl
-
-# 5. Run tests
 cabal test
-
-# 6. Freeze dependencies before sharing
-cabal freeze
 ```
 
 ---
 
-## Project layout example
+## Reproduceerbare builds met `cabal freeze`
 
-A typical Haskell project with Yampa:
+Wanneer je een project deelt met anderen of automatisch laat bouwen op een CI-server, is het belangrijk dat iedereen exact dezelfde versies gebruikt. Het commando `cabal freeze` schrijft een `cabal.project.freeze`-bestand met de exacte versie van elke directe en transitieve dependency die door de solver gekozen werd:
+
+```bash
+cabal freeze
+```
+
+Commit dit bestand mee naar je versiebeheersysteem. Iedereen die daarna het project kloont en `cabal build` uitvoert, zal identieke dependencies gebruiken.
+
+---
+
+## Projectstructuur voor deze cursus
+
+Een typisch Haskell-project dat Yampa gebruikt ziet er als volgt uit:
 
 ```
-frp-game/
-  frp-game.cabal
+frp-spel/
+  frp-spel.cabal
   cabal.project.freeze
   app/
-    Main.hs          -- reactimate loop, entry point
+    Main.hs           -- reactimate-lus, ingangspunt
   src/
-    Game/
-      Logic.hs       -- signal functions
-      Rendering.hs   -- output side effects
-  test/
-    Spec.hs
+    Spel/
+      Logica.hs       -- signalfuncties
+      Rendering.hs    -- uitvoer via IO
 ```
 
-`frp-game.cabal`:
+Het bijbehorende `.cabal`-bestand:
 
 ```cabal
 cabal-version: 3.4
-name:          frp-game
+name:          frp-spel
 version:       0.1.0.0
 build-type:    Simple
 
-executable frp-game
+executable frp-spel
   main-is:          Main.hs
   hs-source-dirs:   app, src
   build-depends:
@@ -309,5 +239,6 @@ executable frp-game
   default-language:   Haskell2010
   default-extensions: OverloadedStrings
                        ScopedTypeVariables
+                       Arrows
   ghc-options:        -Wall -O2
 ```

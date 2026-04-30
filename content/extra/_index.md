@@ -1,10 +1,11 @@
----
-title: "Extra Resources"
+﻿---
+title: "Extra"
 weight: 99
 chapter: true
+pre: "<b>5. </b>"
 draft: false
 ---
 
-# Extra
+### Extra
 
-See the menu on the left.
+Zie het menu links.
