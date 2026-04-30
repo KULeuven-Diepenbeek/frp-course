@@ -284,27 +284,27 @@ _De gegeven oplossingen zijn EEN mogelijke oplossing, soms zijn meerdere mogelij
 
 - Schrijf een signal function `omzetten :: SF Double Double` die de invoer vermenigvuldigt met 2 en daarna 5 optelt. Gebruik `arr` en `>>>`. Test met `embed omzetten (1.0, [(0.1, Nothing), (0.1, Just 3.0)])`.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 omzetten :: SF Double Double
 omzetten = arr (* 2) >>> arr (+ 5)
-``` -->
+```
 
 - Schrijf een signal function `splitter :: SF Double (Double, Double)` die de invoer zowel verdubbelt als halveert via `&&&`. Test met `embed splitter (4.0, [(0.1, Nothing)])`.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 splitter :: SF Double (Double, Double)
 splitter = arr (* 2) &&& arr (/ 2)
-``` -->
+```
 
 - Schrijf een signal function `verschil :: SF (Double, Double) Double` die het verschil tussen twee invoerkanalen berekent via `***` en daarna `arr (uncurry (-))`. Test met `embed verschil ((10.0, 3.0), [(0.1, Just (8.0, 5.0))])`.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 verschil :: SF (Double, Double) Double
 verschil = arr (uncurry (-))
-``` -->
+```
 
 ---
 
@@ -312,18 +312,18 @@ verschil = arr (uncurry (-))
 
 - Schrijf een signal function `afstand :: SF () Double` die een constante snelheid van 2.0 m/s integreert naar een afstand. Gebruik `constant 2.0 >>> integral`. Test over 5 stappen van 0.2s en controleer of de uitvoer `[0.4, 0.8, 1.2, 1.6, 2.0]` is.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 afstand :: SF () Double
 afstand = constant 2.0 >>> integral
 
 -- embed afstand ((), replicate 5 (0.2, Nothing))
 -- => [0.4, 0.8, 1.2, 1.6, 2.0]
-``` -->
+```
 
 - Schrijf een signal function `vallenMetBeginSnelheid :: Double -> SF () Double` die een object laat vallen met een gegeven beginsnelheid (omhoog positief) en zwaartekracht -9.81. Gebruik `proc`-notatie en zorg dat de hoogte niet negatief wordt. Test met beginsnelheid 5.0 over 15 stappen van 0.1s.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -341,7 +341,7 @@ vallenMetBeginSnelheid v0 = proc () -> do
 ```
 
 </p>
-</details> -->
+</details>
 
 ---
 
@@ -349,18 +349,18 @@ vallenMetBeginSnelheid v0 = proc () -> do
 
 - Schrijf een signal function `gemiddelde :: SF (Double, Double) Double` in `proc`-notatie die twee invoerkanalen gemiddeld neemt. Test met `embed gemiddelde ((2.0, 8.0), [(0.1, Just (4.0, 6.0))])`.
 <!-- EXSOL -->
-<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+_**<span style="color: #03C03C;">Solution:</span>**_
 ```haskell
 {-# LANGUAGE Arrows #-}
 import FRP.Yampa
 
 gemiddelde :: SF (Double, Double) Double
 gemiddelde = proc (x, y) -> returnA -< (x + y) / 2.0
-``` -->
+```
 
 - Schrijf een signal function `snelheidsMeter :: SF Double (Double, Double)` in `proc`-notatie die zowel de huidige snelheid (invoer) als de afgelegde afstand (integraal van de snelheid) als paar teruggeeft. Test over 10 stappen van 0.1s met constante invoersnelheid 3.0.
 <!-- EXSOL -->
-<!-- <details closed>
+<details closed>
 <summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
 <p>
 
@@ -377,4 +377,4 @@ snelheidsMeter = proc snelheid -> do
 ```
 
 </p>
-</details> -->
+</details>
