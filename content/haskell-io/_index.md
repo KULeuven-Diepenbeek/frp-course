@@ -8,4 +8,4 @@ draft: true
 
 ### Haskell I/O
 
-Zie het menu links.
+Zie de menu links.

@@ -1,7 +1,7 @@
 ﻿---
 title: "Geavanceerde Yampa"
 weight: 5
-draft: false
+draft: true
 ---
 
 ## Feedback met `loop`

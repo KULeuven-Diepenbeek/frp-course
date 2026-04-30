@@ -167,3 +167,326 @@ main = do
 | `Chan` | Onbegrensd FIFO, threadveilig | Eenvoudig producent-consumentpatroon |
 | `TQueue` | STM FIFO, niet-blokkerend lezen mogelijk | Game loops, event queues (aanbevolen) |
 | `TVar` | Atomische transactional state | Complexe gedeelde state met meerdere variabelen |
+
+---
+
+## Demo: achtergrondverwerking met TQueue
+
+In deze demo bouwen we een programma waarbij een aparte werkerthread taken verwerkt die via een `TQueue` worden aangeleverd. De hoofdthread dient taken in en wacht via een `MVar` op de bevestiging dat alles verwerkt is.
+
+---
+
+### Stap 1: De module-header en imports
+
+```haskell
+module Main where
+
+import Control.Concurrent
+import Control.Concurrent.MVar
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
+```
+
+We importeren `forkIO` via `Control.Concurrent`, `MVar` voor synchronisatie en de STM/TQueue-modules voor de taakwachtrij.
+
+---
+
+### Stap 2: Het taaktype definiëren
+
+We definiëren een algebraïsch datatype voor taken. `Stoppen` fungeert als afsluitsignaal voor de werkerthread:
+
+```haskell
+data Taak = VerwerkTekst String | Stoppen deriving (Show)
+```
+
+Door `Stoppen` in het type op te nemen hebben we geen aparte stopsignaal-`MVar` nodig. De werker weet via patroonmatching wanneer hij klaar is.
+
+---
+
+### Stap 3: De werkerthread
+
+De werker leest taken blokkerend uit de `TQueue` via `readTQueue`. Bij `VerwerkTekst` verwerkt hij de taak en roept zichzelf recursief aan. Bij `Stoppen` signaleert hij via `putMVar` dat hij klaar is:
+
+```haskell
+werker :: TQueue Taak -> MVar () -> IO ()
+werker wachtrij klaar = do
+  taak <- atomically (readTQueue wachtrij)
+  case taak of
+    VerwerkTekst tekst -> do
+      putStrLn ("Verwerkt: " ++ tekst ++ " (" ++ show (length (words tekst)) ++ " woorden)")
+      threadDelay 300000
+      werker wachtrij klaar
+    Stoppen -> putMVar klaar ()
+```
+
+---
+
+### Stap 4: Taken indienen en synchroniseren
+
+Taken worden atomisch aan de wachtrij toegevoegd. Na alle taken voegen we `Stoppen` toe als eindsignaal. `takeMVar klaar` blokkeert `main` totdat de werker `putMVar klaar ()` aanroept:
+
+```haskell
+let taken = [ "Haskell is een pure functionele taal"
+            , "STM maakt gedeelde state veilig"
+            , "TQueue is een threadveilige FIFO queue"
+            ]
+mapM_ (\t -> atomically (writeTQueue wachtrij (VerwerkTekst t))) taken
+atomically (writeTQueue wachtrij Stoppen)
+takeMVar klaar
+```
+
+---
+
+### Stap 5: Alles samenvoegen in `main`
+
+```haskell
+main :: IO ()
+main = do
+  wachtrij <- newTQueueIO
+  klaar    <- newEmptyMVar
+  forkIO (werker wachtrij klaar)
+  let taken = [ "Haskell is een pure functionele taal"
+              , "STM maakt gedeelde state veilig"
+              , "TQueue is een threadveilige FIFO queue"
+              ]
+  mapM_ (\t -> atomically (writeTQueue wachtrij (VerwerkTekst t))) taken
+  atomically (writeTQueue wachtrij Stoppen)
+  takeMVar klaar
+  putStrLn "Alle taken verwerkt."
+```
+
+`newTQueueIO` en `newEmptyMVar` maken de gedeelde structuren aan. `forkIO` start de werker als lichtgewicht thread, waarna de hoofdthread taken indient en wacht.
+
+---
+
+### Volledig programma
+
+<details closed>
+<summary><i><b>Volledig programma — klik om te tonen</b></i>🔽</summary>
+<p>
+
+```haskell
+module Main where
+
+import Control.Concurrent
+import Control.Concurrent.MVar
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
+
+data Taak = VerwerkTekst String | Stoppen deriving (Show)
+
+werker :: TQueue Taak -> MVar () -> IO ()
+werker wachtrij klaar = do
+  taak <- atomically (readTQueue wachtrij)
+  case taak of
+    VerwerkTekst tekst -> do
+      putStrLn ("Verwerkt: " ++ tekst ++ " (" ++ show (length (words tekst)) ++ " woorden)")
+      threadDelay 300000
+      werker wachtrij klaar
+    Stoppen -> putMVar klaar ()
+
+main :: IO ()
+main = do
+  wachtrij <- newTQueueIO
+  klaar    <- newEmptyMVar
+  forkIO (werker wachtrij klaar)
+  let taken = [ "Haskell is een pure functionele taal"
+              , "STM maakt gedeelde state veilig"
+              , "TQueue is een threadveilige FIFO queue"
+              ]
+  mapM_ (\t -> atomically (writeTQueue wachtrij (VerwerkTekst t))) taken
+  atomically (writeTQueue wachtrij Stoppen)
+  takeMVar klaar
+  putStrLn "Alle taken verwerkt."
+```
+
+</p>
+</details>
+
+---
+
+## Oefeningen
+
+<details closed>
+<summary><i><b>GHCi-configuratie voor de demo en oefeningen — klik om te tonen</b></i>🔽</summary>
+<p>
+
+Sla dit bestand op als `.ghci` in de root van je projectdirectory. GHCi laadt het automatisch bij het opstarten.
+
+```haskell
+-- .ghci --- concurrency
+
+-- Prompt
+:set prompt "ghci> "
+:set prompt-cont "     | "
+
+-- Warnings
+:set -Wall
+
+-- Imports die in de demo en oefeningen gebruikt worden
+import Control.Concurrent
+import Control.Concurrent.MVar
+import Control.Concurrent.Chan
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
+```
+
+</p>
+</details>
+
+_De gegeven oplossingen zijn EEN mogelijke oplossing, soms zijn meerdere mogelijkheden juist. Is het gewenste gedrag bereikt, dan is je oplossing correct!_
+
+### Oefeningenreeks 1: forkIO en synchronisatie
+
+- Start een thread die `"Hallo van een thread!"` afdrukt. Gebruik een `MVar ()` om te garanderen dat `main` wacht tot de thread klaar is.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+import Control.Concurrent
+import Control.Concurrent.MVar
+
+main :: IO ()
+main = do
+  klaar <- newEmptyMVar
+  forkIO $ do
+    putStrLn "Hallo van een thread!"
+    putMVar klaar ()
+  takeMVar klaar
+``` -->
+
+- Start 5 threads, waarbij elke thread zijn threadnummer afdrukt. Gebruik een `MVar Int` als teller om te detecteren wanneer alle 5 threads klaar zijn, en wacht dan in `main`.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+import Control.Concurrent
+import Control.Concurrent.MVar
+
+main :: IO ()
+main = do
+  teller <- newMVar (0 :: Int)
+  klaar  <- newEmptyMVar
+  let aantalThreads = 5
+  mapM_ (\i -> forkIO $ do
+    putStrLn ("Thread " ++ show i)
+    n <- takeMVar teller
+    let nieuw = n + 1
+    putMVar teller nieuw
+    if nieuw == aantalThreads
+      then putMVar klaar ()
+      else return ()
+    ) [1..aantalThreads]
+  takeMVar klaar
+```
+
+</p>
+</details> -->
+
+---
+
+### Oefeningenreeks 2: Chan
+
+- Maak een `Chan Int`. Start een producent-thread die de getallen `1` t/m `5` naar het channel schrijft. Lees ze in `main` met `readChan` en druk elk getal af.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+import Control.Concurrent
+import Control.Concurrent.Chan
+
+main :: IO ()
+main = do
+  kanaal <- newChan
+  forkIO $ mapM_ (\i -> writeChan kanaal (i :: Int)) [1..5]
+  mapM_ (\_ -> readChan kanaal >>= print) [1..5 :: Int]
+``` -->
+
+- Start twee producent-threads die elk 3 berichten naar een `Chan String` schrijven. Lees alle 6 berichten in `main` en druk ze af. Gebruik `threadDelay 200000` na het forken zodat de producenten kunnen schrijven.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+import Control.Concurrent
+import Control.Concurrent.Chan
+
+producent :: Chan String -> String -> [String] -> IO ()
+producent kanaal prefix berichten =
+  mapM_ (\b -> writeChan kanaal (prefix ++ ": " ++ b)) berichten
+
+main :: IO ()
+main = do
+  kanaal <- newChan
+  forkIO (producent kanaal "A" ["a1", "a2", "a3"])
+  forkIO (producent kanaal "B" ["b1", "b2", "b3"])
+  threadDelay 200000
+  mapM_ (\_ -> readChan kanaal >>= putStrLn) [1..6 :: Int]
+```
+
+</p>
+</details> -->
+
+---
+
+### Oefeningenreeks 3: TQueue
+
+- Schrijf een werkerthread die taken leest uit een `TQueue` en ze afdrukt. Gebruik een ADT `data Bericht = Tekst String | Stoppen` als signaaltype. Push 4 taken en synchroniseer met een `MVar ()`.
+<!-- EXSOL -->
+<!-- <details closed>
+<summary><i><b><span style="color: #03C03C;">Solution:</span> Klik hier om de code te zien/verbergen</b></i>🔽</summary>
+<p>
+
+```haskell
+import Control.Concurrent
+import Control.Concurrent.MVar
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
+
+data Bericht = Tekst String | Stoppen
+
+werker :: TQueue Bericht -> MVar () -> IO ()
+werker q klaar = do
+  b <- atomically (readTQueue q)
+  case b of
+    Tekst s -> putStrLn ("Taak: " ++ s) >> werker q klaar
+    Stoppen -> putMVar klaar ()
+
+main :: IO ()
+main = do
+  q     <- newTQueueIO
+  klaar <- newEmptyMVar
+  forkIO (werker q klaar)
+  mapM_ (\t -> atomically (writeTQueue q (Tekst t)))
+    ["taak 1", "taak 2", "taak 3", "taak 4"]
+  atomically (writeTQueue q Stoppen)
+  takeMVar klaar
+```
+
+</p>
+</details> -->
+
+- Vul een `TQueue Int` met de waarden `1` t/m `10`. Gebruik daarna de `leegmaken`-functie uit de theorie om alle waarden niet-blokkerend te lezen en druk hun som af.
+<!-- EXSOL -->
+<!-- _**<span style="color: #03C03C;">Solution:</span>**_
+```haskell
+import Control.Concurrent.STM
+import Control.Concurrent.STM.TQueue
+
+leegmaken :: TQueue a -> IO [a]
+leegmaken wachtrij = go []
+  where
+    go acc = do
+      mWaarde <- atomically (tryReadTQueue wachtrij)
+      case mWaarde of
+        Nothing     -> return (reverse acc)
+        Just waarde -> go (waarde : acc)
+
+main :: IO ()
+main = do
+  q <- newTQueueIO
+  mapM_ (\i -> atomically (writeTQueue q i)) [1..10 :: Int]
+  waarden <- leegmaken q
+  putStrLn ("Som: " ++ show (sum waarden))
+``` -->
