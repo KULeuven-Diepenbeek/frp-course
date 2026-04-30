@@ -64,9 +64,9 @@ graph LR
 
 ## Problemen met klassieke FRP en de komst van Arrowized FRP
 
-De originele "behaviours en events"-stijl van FRP heeft in de praktijk problemen opgeleverd. Het voornaamste probleem is **ruimtelek**: door behaviours als functies van de time te modelleren, moeten ze de volledige geschiedenis van hun invoer kunnen raadplegen, wat geheugengebruik doet groeien naarmate de time verstrijkt. Bovendien zijn higher-order behaviours (behaviours die zelf behaviours produceren) conceptueel krachtig maar kunnen ze tot onvoorspelbaar geheugengebruik leiden.
+De originele "behaviours en events"-stijl van FRP heeft in de praktijk problemen opgeleverd. Het voornaamste probleem is **spaceleaks**: door behaviours als functies van de tijd te modelleren, moeten ze de volledige geschiedenis van hun invoer kunnen raadplegen, wat geheugengebruik doet groeien naarmate de tijd verstrijkt. Bovendien zijn higher-order behaviours (behaviours die zelf behaviours produceren) conceptueel krachtig maar kunnen ze tot onvoorspelbaar geheugengebruik leiden.
 
-**Arrowized FRP** lost dit op door het concept van een *signal function* te introduceren. Een signal function is een transformatie van een signaalstroom naar een andere signaalstroom: `SF a b` is een functie die loopt over signalen van type `a` en signalen van type `b` produceert. Signal functions hebben **geen directe toegang tot verleden of toekomst** van het signaal: ze zijn causal (ze kunnen alleen de huidige waarde en geïntegreerde waarden gebruiken). Dit garandeert dat het geheugengebruik beheersbaar blijft.
+**Arrowized FRP** lost dit op door het concept van een *signal function* te introduceren. Een signal function is een transformatie van een signaalstroom naar een andere signaalstroom: `SF a b` is een functie die loopt over signalen van type `a` en signalen van type `b` produceert. Signal functions hebben **geen directe toegang tot verleden of toekomst** van het signaal: ze zijn causaal (ze kunnen alleen de huidige waarde en geïntegreerde waarden gebruiken). Dit garandeert dat het geheugengebruik beheersbaar blijft.
 
 Yampa is de meest gebruikte implementatie van Arrowized FRP in Haskell en is het onderwerp van de rest van deze cursus.
 
@@ -80,7 +80,7 @@ graph LR
 
 ## Waarom Yampa?
 
-Yampa is een mature, stabiele Haskell library voor Arrowized FRP die al meer dan twintig jaar actief gebruikt en onderhouden wordt. Ze is ontworpen voor realtime toepassingen zoals simulaties en games. Ze is gebaseerd op het type `SF a b` ("signal function from `a` to `b`") en gebruikt Haskell's **arrow-notatie** (`proc`/`-<`) als syntactische suiker voor het samenstellen van signal functions.
+Yampa is een stabiele Haskell library voor Arrowized FRP die al meer dan twintig jaar actief gebruikt en onderhouden wordt. Ze is ontworpen voor realtime toepassingen zoals simulaties en games. Ze is gebaseerd op het type `SF a b` ("signal function from `a` to `b`") en gebruikt Haskell's **arrow-notatie** (`proc`/`-<`) als syntactic sugar voor het samenstellen van signal functions.
 
 Yampa heeft een kleine maar expressieve kern. De meeste signal functions zijn combinatoren die andere signal functions samenstellen: serieel (`>>>`), parallel (`***`), of conditioneel via switches. Deze compositionele aanpak maakt het gemakkelijk om complexe reactieve systemen op te bouwen uit eenvoudige building blocks. Bovendien is Yampa puur functioneel: er is geen verborgen global state, geen mutatie achter de schermen. Dit maakt Yampa-code goed testbaar en redeneerbaar.
 
@@ -97,4 +97,4 @@ graph LR
     end
 {{< /mermaid >}}
 
-De volgende secties leiden je stap voor stap door de kernconcepten van Yampa: signal functions, events, reactimate, switches, en geavanceerde technieken.
+Het volgende hoofdstuk leidt je stap voor stap door de kernconcepten van Yampa: signal functions, events, reactimate, switches, en geavanceerde technieken.
